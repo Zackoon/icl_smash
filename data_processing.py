@@ -2,6 +2,9 @@ import os
 import melee
 import numpy as np
 import pandas as pd
+import zipfile
+from tqdm import tqdm
+import tempfile
 
 def load_slp_file(file_path):
     """Initialize and connect to a SLP file."""
@@ -254,7 +257,7 @@ def create_sequences(data, input_len=10, target_len=5):
     return np.array(input_seqs), np.array(target_seqs)
 
 def save_sequences(input_seqs, target_seqs, output_dir, base_filename):
-    """Save input and target sequences to npz file.
+    """Save input and target sequences to compressed npz file.
     
     Args:
         input_seqs: numpy array of input sequences
@@ -264,7 +267,10 @@ def save_sequences(input_seqs, target_seqs, output_dir, base_filename):
     """
     os.makedirs(output_dir, exist_ok=True)
     output_path = os.path.join(output_dir, f"{base_filename}_sequences.npz")
-    np.savez(output_path, inputs=input_seqs, targets=target_seqs)
+        
+    # Use compressed format
+    np.savez_compressed(output_path, inputs=input_seqs, targets=target_seqs)
+    
     print(f"Saved sequences to {output_path}")
     print(f"Input shape: {input_seqs.shape}")
     print(f"Target shape: {target_seqs.shape}")
@@ -299,6 +305,48 @@ def main(slp_file_path, output_dir, base_filename, sample_freq=15, save_csv=Fals
     sampled_data, columns = process_slp_file(slp_file_path, sample_freq)
     save_processed_data(sampled_data, columns, output_dir, base_filename, save_csv=save_csv)
     return sampled_data.shape
+
+def process_zip_files_streaming(zip_path, output_dir, input_len=10, target_len=5):
+    """Process multiple .slp files from a zip file one at a time.
+    
+    Args:
+        zip_path: path to the zip file containing .slp files
+        output_dir: directory to save the processed sequences
+        input_len: length of input sequences
+        target_len: length of target sequences
+    """
+    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+        # Get all .slp files from zip
+        slp_files = [f for f in zip_ref.namelist() if f.endswith('.slp')]
+        
+        # Process one file at a time
+        for zip_path in tqdm(slp_files):
+            try:
+                base_filename = os.path.splitext(os.path.basename(zip_path))[0]
+                
+                # Create a temporary file that is automatically cleaned up
+                with tempfile.NamedTemporaryFile(suffix='.slp', delete=True) as temp_file:
+                    with zip_ref.open(zip_path) as source:
+                        temp_file.write(source.read())
+                    temp_file.flush()
+                    
+                    # Process the file
+                    sampled_data, columns = process_slp_file(temp_file.name)
+                    
+                    # Create and save sequences
+                    process_and_save_sequences(
+                        sampled_data,
+                        output_dir,
+                        base_filename,
+                        input_len=input_len,
+                        target_len=target_len
+                    )
+                    
+            except Exception as e:
+                print(f"Error processing {zip_path}: {str(e)}")
+                continue
+
+    print(f"Processed {len(slp_files)} files in total")
 
 # Example usage:
 if __name__ == "__main__":
