@@ -21,23 +21,41 @@ def flatten_gamestate(frame):
         "stage": frame["stage"]
     }
 
+    # List of all button names we want to track
+    button_names = [
+        "BUTTON_A", "BUTTON_B", "BUTTON_X", "BUTTON_Y", "BUTTON_Z",
+        "BUTTON_L", "BUTTON_R", "BUTTON_START",
+        "BUTTON_D_UP", "BUTTON_D_DOWN", "BUTTON_D_LEFT", "BUTTON_D_RIGHT"
+    ]
+
     # Process player data
     for port in sorted(frame["players"].keys()):
         p = frame["players"][port]
         prefix = f"p{port}_"
 
+        # Flatten all the regular fields
         flat.update({
             prefix + "action": p["action"],
             prefix + "action_frame": p["action_frame"],
             prefix + "character": p["character"],
-            prefix + "character_selected": p["character_selected"],
-            prefix + "controller_button": p["controller_state"]["button"],
             prefix + "controller_c_stick_x": p["controller_state"]["c_stick_x"],
             prefix + "controller_c_stick_y": p["controller_state"]["c_stick_y"],
             prefix + "controller_l_shoulder": p["controller_state"]["l_shoulder"],
             prefix + "controller_r_shoulder": p["controller_state"]["r_shoulder"],
             prefix + "controller_main_stick_x": p["controller_state"]["main_stick_x"],
             prefix + "controller_main_stick_y": p["controller_state"]["main_stick_y"],
+        })
+
+        # Flatten the button states into individual boolean fields
+        button_dict = p["controller_state"]["button"]
+        for button_name in button_names:
+            button_key = f"{prefix}button_{button_name.lower()}"
+            # Convert the boolean value to int (0 or 1)
+            button_value = int(button_dict.get(getattr(melee.Button, button_name), False))
+            flat[button_key] = button_value
+
+        # Add the rest of the player fields...
+        flat.update({
             prefix + "ecb_bottom_x": p["ecb"]["bottom"][0],
             prefix + "ecb_bottom_y": p["ecb"]["bottom"][1],
             prefix + "ecb_left_x": p["ecb"]["left"][0],
@@ -80,11 +98,11 @@ def flatten_gamestate(frame):
                 prefix + "position_y": proj["position"]["y"],
                 prefix + "speed_x": proj["speed"]["x"],
                 prefix + "speed_y": proj["speed"]["y"],
-                prefix + "subtype": proj["subtype"],
-                prefix + "type": proj["type"]
+                # prefix + "subtype": proj["subtype"],  # type of projectile likely not necessary to know
+                # prefix + "type": proj["type"]
             })
         else:
-            for key in ["frame", "owner", "position_x", "position_y", "speed_x", "speed_y", "subtype", "type"]:
+            for key in ["frame", "owner", "position_x", "position_y", "speed_x", "speed_y"]: # , "subtype", "type"]:
                 flat[prefix + key] = None
 
     return flat
@@ -109,7 +127,6 @@ def process_gamestate(gamestate):
             "action": player.action.name if player.action else None,
             "action_frame": player.action_frame,
             "character": player.character.name if player.character else None,
-            "character_selected": player.character_selected,
             "controller_state": {
                 "button": player.controller_state.button,
                 "c_stick_x": player.controller_state.c_stick[0],
@@ -167,25 +184,68 @@ def process_slp_file(file_path, sample_freq=15):
 
     # Convert to DataFrame and numpy array
     df = pd.DataFrame(flattened_frames)
-    np_array = df.to_numpy()
+    data = df.to_numpy()
+    columns = df.columns.tolist()
+
+    # Get all port-based enum columns that exist in the data
+    enum_cols = ['stage']  # Start with stage
+    for port in range(1, 5):  # Ports 1-4
+        action_col = f'p{port}_action'
+        char_col = f'p{port}_character'
+        if action_col in columns:
+            enum_cols.append(action_col)
+        if char_col in columns:
+            enum_cols.append(char_col)
+
+    # Get indices of enum columns and other columns
+    enum_indices = [columns.index(col) for col in enum_cols]
+    other_indices = [i for i in range(len(columns)) if i not in enum_indices]
+
+    # Reorder the columns, such that the enum columns are moved to the end
+    reordered_data = np.concatenate([data[:, other_indices], data[:, enum_indices]], axis=1)
+    reordered_columns = [columns[i] for i in other_indices] + [columns[i] for i in enum_indices]
     
     # Sample the data
-    sampled_idxs = np.arange(0, np_array.shape[0], sample_freq)
-    sampled_data = np_array[sampled_idxs]
+    sampled_idxs = np.arange(0, reordered_data.shape[0], sample_freq)
+    sampled_data = reordered_data[sampled_idxs]
     
-    return sampled_data, df.columns.tolist()
+    return sampled_data, reordered_columns
 
-def save_processed_data(sampled_data, columns, output_dir, base_filename):
-    """Save processed data and column names."""
+def save_processed_data(sampled_data, columns, output_dir, base_filename, save_csv=False):
+    """Save processed data and column names.
+    
+    Args:
+        sampled_data: numpy array of processed game data
+        columns: list of column names
+        output_dir: directory to save the files
+        base_filename: base name for the output files
+        save_csv: if True, also save as CSV (default: False)
+    """
     os.makedirs(output_dir, exist_ok=True)
     
+    # Save numpy arrays
     np.save(os.path.join(output_dir, f"{base_filename}_data.npy"), sampled_data)
-    # np.save(os.path.join(output_dir, f"{base_filename}_columns.npy"), np.array(columns)) # Column Names
+    np.save(os.path.join(output_dir, f"{base_filename}_columns.npy"), np.array(columns))
+    
+    # Save as CSV if requested
+    if save_csv:
+        df = pd.DataFrame(sampled_data, columns=columns)
+        csv_path = os.path.join(output_dir, f"{base_filename}_data.csv")
+        df.to_csv(csv_path, index=False)
+        print(f"Saved CSV to: {csv_path}")
 
-def main(slp_file_path, output_dir, base_filename, sample_freq=15):
-    """Main function to process a SLP file and save the results."""
+def main(slp_file_path, output_dir, base_filename, sample_freq=15, save_csv=False):
+    """Main function to process a SLP file and save the results.
+    
+    Args:
+        slp_file_path: path to the .slp file
+        output_dir: directory to save the processed data
+        base_filename: base name for the output files
+        sample_freq: frequency of frame sampling (default: 15)
+        save_csv: if True, also save as CSV (default: False)
+    """
     sampled_data, columns = process_slp_file(slp_file_path, sample_freq)
-    save_processed_data(sampled_data, columns, output_dir, base_filename)
+    save_processed_data(sampled_data, columns, output_dir, base_filename, save_csv=save_csv)
     return sampled_data.shape
 
 # Example usage:
@@ -194,5 +254,6 @@ if __name__ == "__main__":
     output_dir = "./processed_data"
     base_filename = "example1"
     
-    shape = main(slp_file, output_dir, base_filename)
+    # Process and save in both .npy and .csv formats
+    shape = main(slp_file, output_dir, base_filename, save_csv=True)
     print(f"Processed data shape: {shape}")
