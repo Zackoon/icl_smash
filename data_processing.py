@@ -234,6 +234,58 @@ def save_processed_data(sampled_data, columns, output_dir, base_filename, save_c
         df.to_csv(csv_path, index=False)
         print(f"Saved CSV to: {csv_path}")
 
+def create_sequences(data, input_len=10, target_len=5):
+    """Create input and target sequences from data.
+    
+    Args:
+        data: numpy array of processed game data
+        input_len: length of input sequences
+        target_len: length of target sequences
+    
+    Returns:
+        tuple: (input_sequences, target_sequences)
+    """
+    input_seqs = []
+    target_seqs = []
+    for t in range(len(data) - input_len - target_len):
+        input_seqs.append(data[t : t + input_len])
+        target_seqs.append(data[t + input_len : t + input_len + target_len])
+    
+    return np.array(input_seqs), np.array(target_seqs)
+
+def save_sequences(input_seqs, target_seqs, output_dir, base_filename):
+    """Save input and target sequences to npz file.
+    
+    Args:
+        input_seqs: numpy array of input sequences
+        target_seqs: numpy array of target sequences
+        output_dir: directory to save the file
+        base_filename: base name for the output file
+    """
+    os.makedirs(output_dir, exist_ok=True)
+    output_path = os.path.join(output_dir, f"{base_filename}_sequences.npz")
+    np.savez(output_path, inputs=input_seqs, targets=target_seqs)
+    print(f"Saved sequences to {output_path}")
+    print(f"Input shape: {input_seqs.shape}")
+    print(f"Target shape: {target_seqs.shape}")
+
+def process_and_save_sequences(data, output_dir, base_filename, input_len=10, target_len=5):
+    """Process data into sequences and save them.
+    
+    Args:
+        data: numpy array of processed game data
+        output_dir: directory to save the sequences
+        base_filename: base name for the output file
+        input_len: length of input sequences
+        target_len: length of target sequences
+    
+    Returns:
+        tuple: (input_sequences, target_sequences)
+    """
+    input_seqs, target_seqs = create_sequences(data, input_len, target_len)
+    save_sequences(input_seqs, target_seqs, output_dir, base_filename)
+    return input_seqs, target_seqs
+
 def main(slp_file_path, output_dir, base_filename, sample_freq=15, save_csv=False):
     """Main function to process a SLP file and save the results.
     
