@@ -319,7 +319,7 @@ def get_slp_files_from_archive(archive_path: Path) -> List[str]:
     else:  # .7z
         with py7zr.SevenZipFile(archive_path, 'r') as archive:
             return [f for f in archive.getnames() 
-                   if f.endswith('.slp') and not f.startswith('__MACOSX')]
+                   if f.endswith('.slp')]
 
 def process_archive_files_streaming(archive_path: Union[str, Path], 
                                   output_dir: str, 
@@ -346,10 +346,9 @@ def process_archive_files_streaming(archive_path: Union[str, Path],
     # Get list of .slp files first
     slp_files = get_slp_files_from_archive(archive_path)
     
-    with tempfile.TemporaryDirectory() as temp_dir:
-        temp_dir_path = Path(temp_dir)
-        
-        if archive_type == '.zip':
+    if archive_type == '.zip':
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_dir_path = Path(temp_dir)
             with zipfile.ZipFile(archive_path, 'r') as archive:
                 for slp_file in tqdm(slp_files, desc="Processing ZIP files"):
                     try:
@@ -375,33 +374,31 @@ def process_archive_files_streaming(archive_path: Union[str, Path],
                         print(f"Error processing {slp_file}: {str(e)}")
                         failed_count += 1
                         failed_files.append(slp_file)
+    
+    else:  # .7z
+        for slp_file in tqdm(slp_files, desc="Processing 7Z files"):
+            base_filename = Path(slp_file).stem
+            
+            try:
+                with py7zr.SevenZipFile(archive_path, mode='r') as archive:
+                    with tempfile.TemporaryDirectory() as temp_dir:
+                        archive.extract(path=temp_dir, targets=[slp_file])
+                        extracted_path = os.path.join(temp_dir, slp_file)
                         
-        else:  # .7z
-            with py7zr.SevenZipFile(archive_path, 'r') as archive:
-                for slp_file in tqdm(slp_files, desc="Processing 7Z files"):
-                    try:
-                        # Extract single file
-                        archive.extract(temp_dir, [slp_file])
-                        temp_file_path = temp_dir_path / slp_file
-                        base_filename = temp_file_path.stem
-                        
-                        # Process the file
-                        sampled_data, columns = process_slp_file(str(temp_file_path))
-                        process_and_save_sequences(
-                            sampled_data,
-                            output_dir,
-                            base_filename,
-                            input_len=input_len,
-                            target_len=target_len
-                        )
-                        processed_count += 1
-                        
-                        # Clean up extracted file
-                        temp_file_path.unlink()
-                    except Exception as e:
-                        print(f"Error processing {slp_file}: {str(e)}")
-                        failed_count += 1
-                        failed_files.append(slp_file)
+                        if os.path.exists(extracted_path):
+                            sampled_data, columns = process_slp_file(extracted_path)
+                            process_and_save_sequences(
+                                sampled_data,
+                                output_dir,
+                                base_filename,
+                                input_len=input_len,
+                                target_len=target_len
+                            )
+                            processed_count += 1
+            except Exception as e:
+                print(f"❌ Failed to process {slp_file}: {e}")
+                failed_count += 1
+                failed_files.append(slp_file)
 
     print(f"\nProcessed {processed_count} files from {archive_path}")
     print(f"Failed to process {failed_count} files")
