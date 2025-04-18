@@ -3,8 +3,12 @@ import melee
 import numpy as np
 import pandas as pd
 import zipfile
-from tqdm import tqdm
+import py7zr
 import tempfile
+import os
+from pathlib import Path
+from typing import Union, List
+from tqdm import tqdm
 
 def load_slp_file(file_path):
     """Initialize and connect to a SLP file."""
@@ -306,47 +310,140 @@ def main(slp_file_path, output_dir, base_filename, sample_freq=15, save_csv=Fals
     save_processed_data(sampled_data, columns, output_dir, base_filename, save_csv=save_csv)
     return sampled_data.shape
 
-def process_zip_files_streaming(zip_path, output_dir, input_len=10, target_len=5):
-    """Process multiple .slp files from a zip file one at a time.
+def get_slp_files_from_archive(archive_path: Path) -> List[str]:
+    """Get list of .slp files from archive without extracting."""
+    if archive_path.suffix.lower() == '.zip':
+        with zipfile.ZipFile(archive_path, 'r') as archive:
+            return [f for f in archive.namelist() 
+                   if f.endswith('.slp') and not f.startswith('__MACOSX')]
+    else:  # .7z
+        with py7zr.SevenZipFile(archive_path, 'r') as archive:
+            return [f for f in archive.getnames() 
+                   if f.endswith('.slp') and not f.startswith('__MACOSX')]
+
+def process_archive_files_streaming(archive_path: Union[str, Path], 
+                                  output_dir: str, 
+                                  input_len: int = 10, 
+                                  target_len: int = 5) -> None:
+    """Process multiple .slp files from a zip or 7z archive one at a time.
     
     Args:
-        zip_path: path to the zip file containing .slp files
+        archive_path: path to the zip/7z file containing .slp files
         output_dir: directory to save the processed sequences
         input_len: length of input sequences
         target_len: length of target sequences
     """
-    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-        # Get all .slp files from zip
-        slp_files = [f for f in zip_ref.namelist() if f.endswith('.slp')]
-        
-        # Process one file at a time
-        for zip_path in tqdm(slp_files):
-            try:
-                base_filename = os.path.splitext(os.path.basename(zip_path))[0]
-                
-                # Create a temporary file that is automatically cleaned up
-                with tempfile.NamedTemporaryFile(suffix='.slp', delete=True) as temp_file:
-                    with zip_ref.open(zip_path) as source:
-                        temp_file.write(source.read())
-                    temp_file.flush()
-                    
-                    # Process the file
-                    sampled_data, columns = process_slp_file(temp_file.name)
-                    
-                    # Create and save sequences
-                    process_and_save_sequences(
-                        sampled_data,
-                        output_dir,
-                        base_filename,
-                        input_len=input_len,
-                        target_len=target_len
-                    )
-                    
-            except Exception as e:
-                print(f"Error processing {zip_path}: {str(e)}")
-                continue
+    archive_path = Path(archive_path)
+    archive_type = archive_path.suffix.lower()
 
-    print(f"Processed {len(slp_files)} files in total")
+    if archive_type not in ['.zip', '.7z']:
+        raise ValueError(f"Unsupported archive type: {archive_type}. Must be .zip or .7z")
+
+    processed_count = 0
+    failed_count = 0
+    failed_files = []
+
+    # Get list of .slp files first
+    slp_files = get_slp_files_from_archive(archive_path)
+    
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_dir_path = Path(temp_dir)
+        
+        if archive_type == '.zip':
+            with zipfile.ZipFile(archive_path, 'r') as archive:
+                for slp_file in tqdm(slp_files, desc="Processing ZIP files"):
+                    try:
+                        # Extract single file to temp directory
+                        archive.extract(slp_file, temp_dir)
+                        temp_file_path = temp_dir_path / slp_file
+                        base_filename = temp_file_path.stem
+                        
+                        # Process the file
+                        sampled_data, columns = process_slp_file(str(temp_file_path))
+                        process_and_save_sequences(
+                            sampled_data,
+                            output_dir,
+                            base_filename,
+                            input_len=input_len,
+                            target_len=target_len
+                        )
+                        processed_count += 1
+                        
+                        # Clean up extracted file
+                        temp_file_path.unlink()
+                    except Exception as e:
+                        print(f"Error processing {slp_file}: {str(e)}")
+                        failed_count += 1
+                        failed_files.append(slp_file)
+                        
+        else:  # .7z
+            with py7zr.SevenZipFile(archive_path, 'r') as archive:
+                for slp_file in tqdm(slp_files, desc="Processing 7Z files"):
+                    try:
+                        # Extract single file
+                        archive.extract(temp_dir, [slp_file])
+                        temp_file_path = temp_dir_path / slp_file
+                        base_filename = temp_file_path.stem
+                        
+                        # Process the file
+                        sampled_data, columns = process_slp_file(str(temp_file_path))
+                        process_and_save_sequences(
+                            sampled_data,
+                            output_dir,
+                            base_filename,
+                            input_len=input_len,
+                            target_len=target_len
+                        )
+                        processed_count += 1
+                        
+                        # Clean up extracted file
+                        temp_file_path.unlink()
+                    except Exception as e:
+                        print(f"Error processing {slp_file}: {str(e)}")
+                        failed_count += 1
+                        failed_files.append(slp_file)
+
+    print(f"\nProcessed {processed_count} files from {archive_path}")
+    print(f"Failed to process {failed_count} files")
+    if failed_files:
+        print("Failed files:")
+        for f in failed_files:
+            print(f"  - {f}")
+    print(f"Results saved to: {output_dir}")
+
+def batch_process_archives(archive_dir: Union[str, Path], 
+                         output_dir: str, 
+                         input_len: int = 10, 
+                         target_len: int = 5) -> None:
+    """Process all zip and 7z archives in a directory.
+    
+    Args:
+        archive_dir: directory containing zip/7z archives
+        output_dir: directory to save the processed sequences
+        input_len: length of input sequences
+        target_len: length of target sequences
+    """
+    archive_dir = Path(archive_dir)
+    archives = list(archive_dir.glob("*.zip")) + list(archive_dir.glob("*.7z"))
+    
+    if not archives:
+        print(f"No .zip or .7z files found in {archive_dir}")
+        return
+    
+    print(f"Found {len(archives)} archives to process")
+    
+    for archive_path in archives:
+        print(f"\nProcessing archive: {archive_path}")
+        try:
+            process_archive_files_streaming(
+                archive_path,
+                output_dir,
+                input_len=input_len,
+                target_len=target_len
+            )
+        except Exception as e:
+            print(f"Error processing archive {archive_path}: {str(e)}")
+            continue
 
 # Example usage:
 if __name__ == "__main__":
@@ -357,3 +454,11 @@ if __name__ == "__main__":
     # Process and save in both .npy and .csv formats
     shape = main(slp_file, output_dir, base_filename, save_csv=True)
     print(f"Processed data shape: {shape}")
+
+    # Process a single archive
+    archive_path = "./data/matches.zip"  # or "matches.7z"
+    process_archive_files_streaming(archive_path, output_dir)
+
+    # Or process multiple archives in a directory
+    archive_dir = "./data/archives"
+    batch_process_archives(archive_dir, output_dir)
