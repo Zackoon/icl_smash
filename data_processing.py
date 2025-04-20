@@ -9,6 +9,8 @@ import os
 from pathlib import Path
 from typing import Union, List
 from tqdm import tqdm
+from glob import glob
+from typing import Tuple
 
 def load_slp_file(file_path):
     """Initialize and connect to a SLP file."""
@@ -242,23 +244,25 @@ def save_processed_data(sampled_data, columns, output_dir, base_filename, save_c
         print(f"Saved CSV to: {csv_path}")
 
 def create_sequences(data, input_len=10, target_len=5):
-    """Create input and target sequences from data.
+    """Create input and target sequences from data using NumPy operations.
     
     Args:
-        data: numpy array of processed game data
+        data: numpy array of processed game data of shape (timesteps, features)
         input_len: length of input sequences
         target_len: length of target sequences
     
     Returns:
-        tuple: (input_sequences, target_sequences)
+        tuple: (input_sequences, target_sequences) where each sequence has shape
+        (num_sequences, sequence_length, features_dim)
     """
-    input_seqs = []
-    target_seqs = []
-    for t in range(len(data) - input_len - target_len):
-        input_seqs.append(data[t : t + input_len])
-        target_seqs.append(data[t + input_len : t + input_len + target_len])
+    total_len = input_len + target_len
+    n_sequences = len(data) - total_len + 1
     
-    return np.array(input_seqs), np.array(target_seqs)
+    # Create sequences using the first axis only
+    input_seqs = np.lib.stride_tricks.sliding_window_view(data, input_len, axis=0)[:n_sequences]
+    target_seqs = np.lib.stride_tricks.sliding_window_view(data, target_len, axis=0)[input_len:input_len + n_sequences]
+    
+    return input_seqs, target_seqs
 
 def save_sequences(input_seqs, target_seqs, output_dir, base_filename):
     """Save input and target sequences to compressed npz file.
@@ -442,6 +446,61 @@ def batch_process_archives(archive_dir: Union[str, Path],
             print(f"Error processing archive {archive_path}: {str(e)}")
             continue
 
+def process_directory_slp_files(
+    directory_path: Union[str, Path],
+    output_dir: str,
+    input_len: int = 10,
+    target_len: int = 5
+) -> Tuple[int, List[str]]:
+    """Process all .slp files in a directory and its subdirectories.
+    
+    Args:
+        directory_path: path to directory containing .slp files
+        output_dir: directory to save the processed sequences
+        input_len: length of input sequences
+        target_len: length of target sequences
+    
+    Returns:
+        Tuple of (number of successfully processed files, list of failed files)
+    """
+    # Get all .slp files recursively
+    slp_files = glob(str(Path(directory_path) / "**/*.slp"), recursive=True)
+    
+    if not slp_files:
+        print(f"No .slp files found in {directory_path}")
+        return 0, []
+
+    print(f"Found {len(slp_files)} .slp files to process")
+    
+    processed_count = 0
+    failed_files = []
+
+    # Process each file
+    for slp_path in tqdm(slp_files, desc="Processing .slp files"):
+        try:
+            base_filename = Path(slp_path).stem
+            sampled_data, columns = process_slp_file(slp_path)
+            process_and_save_sequences(
+                sampled_data,
+                output_dir,
+                base_filename,
+                input_len=input_len,
+                target_len=target_len
+            )
+            processed_count += 1
+        except Exception as e:
+            failed_files.append(f"{slp_path}: {str(e)}")
+
+    # Print summary
+    print(f"\nSuccessfully processed {processed_count} files")
+    if failed_files:
+        print(f"Failed to process {len(failed_files)} files:")
+        for f in failed_files:
+            print(f"  - {f}")
+    print(f"Results saved to: {output_dir}")
+
+    return processed_count, failed_files
+
 # Example usage:
 if __name__ == "__main__":
     slp_file = "./data/Stream-Game_20220828T223051.slp"
@@ -459,3 +518,8 @@ if __name__ == "__main__":
     # Or process multiple archives in a directory
     archive_dir = "./data/archives"
     batch_process_archives(archive_dir, output_dir)
+
+    # Process all .slp files in a directory
+    slp_directory = "./data"
+    processed_count, failed = process_directory_slp_files(slp_directory, output_dir)
+    print(f"Processed {processed_count} files with {len(failed)} failures")
