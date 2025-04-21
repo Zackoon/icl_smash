@@ -139,7 +139,7 @@ class MeleeEncoderDecoder(nn.Module):
                      # enum_preds: Dict[str, torch.Tensor],
                     cont_targets: torch.Tensor, 
                     # enum_targets: Dict[str, torch.Tensor]
-                    ) 
+                    ) -> torch.Tensor:
     # -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
         """Compute losses for continuous and enum predictions.
         
