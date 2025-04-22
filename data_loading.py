@@ -20,7 +20,7 @@ class EnumColumns:
     @classmethod
     def from_tensor(cls, tensor: torch.Tensor, prefix: str = '') -> 'EnumColumns':
         """Create EnumColumns from a tensor."""
-        print("From tensor:", tensor.shape)
+        # print("From tensor:", tensor.shape)
         return cls(
             stage=tensor[..., 0],
             p1_action=tensor[..., 1],
@@ -170,7 +170,7 @@ class BatchedFilesDataset:
             except Exception as e:
                 print(f"Failed to load {file_path}: {e}")
         
-        print(datasets)
+        # print(datasets)
         self.current_batch_idx += 1
         return ConcatDataset(datasets)
     
