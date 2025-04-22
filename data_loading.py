@@ -8,42 +8,42 @@ from torch.utils.data import Dataset, ConcatDataset
 
 NUM_ENUMS = 5  # stage, p1_action, p1_character, p2_action, p2_character
 
-# @dataclass
-# class EnumColumns:
-#     """Dataclass for handling enumerated columns in the dataset."""
-#     stage: torch.Tensor        # Current stage/level
-#     p1_action: torch.Tensor    # Player 1's current action state
-#     p1_character: torch.Tensor # Player 1's character selection
-#     p2_action: torch.Tensor    # Player 2's current action state
-#     p2_character: torch.Tensor # Player 2's character selection
+@dataclass
+class EnumColumns:
+    """Dataclass for handling enumerated columns in the dataset."""
+    stage: torch.Tensor        # Current stage/level
+    p1_action: torch.Tensor    # Player 1's current action state
+    p1_character: torch.Tensor # Player 1's character selection
+    p2_action: torch.Tensor    # Player 2's current action state
+    p2_character: torch.Tensor # Player 2's character selection
 
-#     @classmethod
-#     def from_tensor(cls, tensor: torch.Tensor, prefix: str = '') -> 'EnumColumns':
-#         """Create EnumColumns from a tensor."""
-#         return cls(
-#             stage=tensor[..., 0],
-#             p1_action=tensor[..., 1],
-#             p1_character=tensor[..., 2],
-#             p2_action=tensor[..., 3],
-#             p2_character=tensor[..., 4]
-#         )
+    @classmethod
+    def from_tensor(cls, tensor: torch.Tensor, prefix: str = '') -> 'EnumColumns':
+        """Create EnumColumns from a tensor."""
+        return cls(
+            stage=tensor[..., 0],
+            p1_action=tensor[..., 1],
+            p1_character=tensor[..., 2],
+            p2_action=tensor[..., 3],
+            p2_character=tensor[..., 4]
+        )
 
-#     def to_dict(self, prefix: str = '') -> Dict[str, torch.Tensor]:
-#         """Convert EnumColumns to dictionary."""
-#         return {
-#             f'{prefix}stage': self.stage,
-#             f'{prefix}p1_action': self.p1_action,
-#             f'{prefix}p1_character': self.p1_character,
-#             f'{prefix}p2_action': self.p2_action,
-#             f'{prefix}p2_character': self.p2_character
-#         }
+    def to_dict(self, prefix: str = '') -> Dict[str, torch.Tensor]:
+        """Convert EnumColumns to dictionary."""
+        return {
+            f'{prefix}stage': self.stage,
+            f'{prefix}p1_action': self.p1_action,
+            f'{prefix}p1_character': self.p1_character,
+            f'{prefix}p2_action': self.p2_action,
+            f'{prefix}p2_character': self.p2_character
+        }
 
 
 @dataclass
 class InputData:
     """Dataclass for handling input data."""
     continuous: torch.Tensor
-    # enums: EnumColumns
+    enums: EnumColumns
     match_id: int
 
 
@@ -51,7 +51,7 @@ class InputData:
 class TargetData:
     """Dataclass for handling target data."""
     continuous: torch.Tensor
-    # enums: EnumColumns
+    enums: EnumColumns
 
 
 class MeleeDataset(Dataset):
@@ -69,17 +69,10 @@ class MeleeDataset(Dataset):
         # Load inputs - get only continuous data
         all_inputs = data['inputs']
         # print(all_inputs.shape)
-        # input_continuous = torch.tensor(all_inputs[:, :-num_enums].astype(np.float32), dtype=torch.float32)
-        # input_enums = EnumColumns.from_tensor(
-        #     torch.tensor(all_inputs[:, -num_enums:].astype(np.float32), dtype=torch.long)
-        # )
-
-        # FIXME: Currently the shape is off from data processing; this will fix it
-        print(f"Original input shape: {all_inputs.shape}")
-        
-        # Transpose from (samples, features, timesteps) to (samples, timesteps, features)
-        all_inputs = np.transpose(all_inputs, (0, 2, 1))
-        print(f"Transposed input shape: {all_inputs.shape}")
+        input_continuous = torch.tensor(all_inputs[:, :-num_enums].astype(np.float32), dtype=torch.float32)
+        input_enums = EnumColumns.from_tensor(
+            torch.tensor(all_inputs[:, -num_enums:].astype(np.float32), dtype=torch.long)
+        )
         
         input_continuous = torch.tensor(
             all_inputs[..., :-num_enums].astype(np.float32), 
@@ -87,18 +80,16 @@ class MeleeDataset(Dataset):
         )
         self.inputs = InputData(
             continuous=input_continuous,
-            # enums=input_enums,
+            enums=input_enums,
             match_id=match_id
         )
         
         # Load targets - get only continuous data
         all_targets = data['targets']
-        # target_continuous = torch.tensor(all_targets[:, :-num_enums].astype(np.float32), dtype=torch.float32)
-        # target_enums = EnumColumns.from_tensor(
-        #     torch.tensor(all_targets[:, -num_enums:].astype(np.float32), dtype=torch.long)
-        # )
-        # FIXME: Currently the shape is off from data processing; this will fix it
-        all_targets = np.transpose(all_targets, (0, 2, 1))
+        target_continuous = torch.tensor(all_targets[:, :-num_enums].astype(np.float32), dtype=torch.float32)
+        target_enums = EnumColumns.from_tensor(
+            torch.tensor(all_targets[:, -num_enums:].astype(np.float32), dtype=torch.long)
+        )
         
         target_continuous = torch.tensor(
             all_targets[..., :-num_enums].astype(np.float32), 
@@ -106,7 +97,7 @@ class MeleeDataset(Dataset):
         )
         self.targets = TargetData(
             continuous=target_continuous,
-            # enums=target_enums
+            enums=target_enums
         )
 
     def __len__(self) -> int:
@@ -124,9 +115,9 @@ class MeleeDataset(Dataset):
         """
         return {
             'continuous_inputs': self.inputs.continuous[idx],
-            # **self.inputs.enums.to_dict(),
+            **self.inputs.enums.to_dict(),
             'continuous_targets': self.targets.continuous[idx],
-            # **self.targets.enums.to_dict(prefix='target_'),
+            **self.targets.enums.to_dict(prefix='target_'),
             'match_id': self.inputs.match_id
         }
 

@@ -141,6 +141,7 @@ def process_slp_file(file_path, sample_freq=15):
     # Convert to DataFrame and numpy array
     df = pd.DataFrame(flattened_frames)
     data = df.to_numpy()
+    print("Processed slp file shape:", data.shape)
     columns = df.columns.tolist()
 
     # Get all port-based enum columns that exist in the data
@@ -208,6 +209,10 @@ def create_sequences(data, input_len=10, target_len=5):
     # Create sequences using the first axis only
     input_seqs = np.lib.stride_tricks.sliding_window_view(data, input_len, axis=0)[:n_sequences]
     target_seqs = np.lib.stride_tricks.sliding_window_view(data, target_len, axis=0)[input_len:input_len + n_sequences]
+    
+    # Transpose from (num_sequences, num_features, seq_len) to (num_sequences, seq_len, num_features)
+    input_seqs = np.transpose(input_seqs, (0, 2, 1))
+    target_seqs = np.transpose(target_seqs, (0, 2, 1))
     
     return input_seqs, target_seqs
 
