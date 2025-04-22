@@ -141,7 +141,7 @@ def process_slp_file(file_path, sample_freq=15):
     # Convert to DataFrame and numpy array
     df = pd.DataFrame(flattened_frames)
     data = df.to_numpy()
-    print("Processed slp file shape:", data.shape)
+    # print("Processed slp file shape:", data.shape)
     columns = df.columns.tolist()
 
     # Get all port-based enum columns that exist in the data
@@ -232,8 +232,8 @@ def save_sequences(input_seqs, target_seqs, output_dir, base_filename):
     np.savez_compressed(output_path, inputs=input_seqs, targets=target_seqs)
     
     print(f"Saved sequences to {output_path}")
-    print(f"Input shape: {input_seqs.shape}")
-    print(f"Target shape: {target_seqs.shape}")
+    # print(f"Input shape: {input_seqs.shape}")
+    # print(f"Target shape: {target_seqs.shape}")
 
 def process_and_save_sequences(data, output_dir, base_filename, input_len=10, target_len=5):
     """Process data into sequences and save them.
