@@ -30,11 +30,10 @@ def flatten_gamestate(frame):
         "stage": frame["stage"]
     }
 
-    # List of all button names we want to track
+    # List of all button names we want to track (removed D-pad buttons)
     button_names = [
         "BUTTON_A", "BUTTON_B", "BUTTON_X", "BUTTON_Y", "BUTTON_Z",
-        "BUTTON_L", "BUTTON_R", "BUTTON_START",
-        "BUTTON_D_UP", "BUTTON_D_DOWN", "BUTTON_D_LEFT", "BUTTON_D_RIGHT"
+        "BUTTON_L", "BUTTON_R", "BUTTON_START"
     ]
 
     # Process player data
@@ -65,55 +64,19 @@ def flatten_gamestate(frame):
 
         # Add the rest of the player fields...
         flat.update({
-            prefix + "ecb_bottom_x": p["ecb"]["bottom"][0],
-            prefix + "ecb_bottom_y": p["ecb"]["bottom"][1],
-            prefix + "ecb_left_x": p["ecb"]["left"][0],
-            prefix + "ecb_left_y": p["ecb"]["left"][1],
-            prefix + "ecb_right_x": p["ecb"]["right"][0],
-            prefix + "ecb_right_y": p["ecb"]["right"][1],
-            prefix + "ecb_top_x": p["ecb"]["top"][0],
-            prefix + "ecb_top_y": p["ecb"]["top"][1],
             prefix + "facing": p["facing"],
             prefix + "hitlag_left": p["hitlag_left"],
             prefix + "hitstun_frames_left": p["hitstun_frames_left"],
-            prefix + "iasa": p["iasa"],
-            prefix + "invulnerability_left": p["invulnerability_left"],
-            prefix + "invulnerable": p["invulnerable"],
             prefix + "jumps_left": p["jumps_left"],
-            prefix + "moonwalkwarning": p["moonwalkwarning"],
-            prefix + "nana": p["nana"],
             prefix + "off_stage": p["off_stage"],
             prefix + "on_ground": p["on_ground"],
             prefix + "percent": p["percent"],
             prefix + "position_x": p["position"]["x"],
             prefix + "position_y": p["position"]["y"],
             prefix + "shield_strength": p["shield_strength"],
-            prefix + "speed_air_x_self": p["speed_air_x_self"],
-            prefix + "speed_ground_x_self": p["speed_ground_x_self"],
-            prefix + "speed_x_attack": p["speed_x_attack"],
-            prefix + "speed_y_self": p["speed_y_self"],
             prefix + "stock": p["stock"]
         })
-
-    # Process projectile data
-    for i in range(2):  # Support up to 2 projectiles
-        prefix = f"proj{i}_"
-        if i < len(frame["projectiles"]):
-            proj = frame["projectiles"][i]
-            flat.update({
-                prefix + "frame": proj["frame"],
-                prefix + "owner": proj["owner"],
-                prefix + "position_x": proj["position"]["x"],
-                prefix + "position_y": proj["position"]["y"],
-                prefix + "speed_x": proj["speed"]["x"],
-                prefix + "speed_y": proj["speed"]["y"],
-                # prefix + "subtype": proj["subtype"],  # type of projectile likely not necessary to know
-                # prefix + "type": proj["type"]
-            })
-        else:
-            for key in ["frame", "owner", "position_x", "position_y", "speed_x", "speed_y"]: # , "subtype", "type"]:
-                flat[prefix + key] = None
-
+        
     return flat
 
 def process_gamestate(gamestate):
@@ -124,18 +87,17 @@ def process_gamestate(gamestate):
     frame_data = {
         "frame": gamestate.frame,
         "distance": gamestate.distance,
-        "stage": gamestate.stage.name if gamestate.stage else None,
+        "stage": gamestate.stage.value if gamestate.stage else None,
         "players": {},
-        "projectiles": []
     }
 
     for port, player in gamestate.players.items():
         if player is None:
             continue
         frame_data["players"][port] = {
-            "action": player.action.name if player.action else None,
+            "action": player.action.value if player.action else None,
             "action_frame": player.action_frame,
-            "character": player.character.name if player.character else None,
+            "character": player.character.value if player.character else None,
             "controller_state": {
                 "button": player.controller_state.button,
                 "c_stick_x": player.controller_state.c_stick[0],
@@ -145,21 +107,10 @@ def process_gamestate(gamestate):
                 "main_stick_x": player.controller_state.main_stick[0],
                 "main_stick_y": player.controller_state.main_stick[1]
             },
-            "ecb": {
-                "bottom": tuple(player.ecb_bottom) if player.ecb_bottom else (None, None),
-                "left": tuple(player.ecb_left) if player.ecb_left else (None, None),
-                "right": tuple(player.ecb_right) if player.ecb_right else (None, None),
-                "top": tuple(player.ecb_top) if player.ecb_top else (None, None),
-            },
             "facing": player.facing,
             "hitlag_left": player.hitlag_left,
             "hitstun_frames_left": player.hitstun_frames_left,
-            "iasa": player.iasa,
-            "invulnerability_left": player.invulnerability_left,
-            "invulnerable": player.invulnerable,
             "jumps_left": player.jumps_left,
-            "moonwalkwarning": player.moonwalkwarning,
-            "nana": player.nana is not None,
             "off_stage": player.off_stage,
             "on_ground": player.on_ground,
             "percent": player.percent,
@@ -168,10 +119,6 @@ def process_gamestate(gamestate):
                 "y": player.position.y if player.position else None
             },
             "shield_strength": player.shield_strength,
-            "speed_air_x_self": player.speed_air_x_self,
-            "speed_ground_x_self": player.speed_ground_x_self,
-            "speed_x_attack": player.speed_x_attack,
-            "speed_y_self": player.speed_y_self,
             "stock": player.stock
         }
 
