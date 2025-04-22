@@ -67,8 +67,8 @@ class MeleeEncoderDecoder(nn.Module):
 
         self.pos_enc = nn.Parameter(torch.randn(1, 100, d_model))  # fixed max seq_len
 
-        encoder_layer = nn.TransformerEncoderLayer(d_model, nhead)
-        decoder_layer = nn.TransformerDecoderLayer(d_model, nhead)
+        encoder_layer = nn.TransformerEncoderLayer(d_model, nhead, batch_first=True)
+        decoder_layer = nn.TransformerDecoderLayer(d_model, nhead, batch_first=True)
 
         self.encoder = nn.TransformerEncoder(encoder_layer, num_layers)
         self.decoder = nn.TransformerDecoder(decoder_layer, num_layers)

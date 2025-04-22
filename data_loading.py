@@ -20,6 +20,7 @@ class EnumColumns:
     @classmethod
     def from_tensor(cls, tensor: torch.Tensor, prefix: str = '') -> 'EnumColumns':
         """Create EnumColumns from a tensor."""
+        print("From tensor:", tensor.shape)
         return cls(
             stage=tensor[..., 0],
             p1_action=tensor[..., 1],
@@ -28,7 +29,7 @@ class EnumColumns:
             p2_character=tensor[..., 4]
         )
 
-    def to_dict(self, idx: int, prefix: str = '') -> Dict[str, torch.Tensor]:
+    def to_dict(self, prefix: str = '') -> Dict[str, torch.Tensor]:
         """Convert EnumColumns to dictionary with indexed tensors.
         
         Args:
@@ -39,11 +40,11 @@ class EnumColumns:
             Dictionary mapping feature names to indexed tensors
         """
         return {
-            f'{prefix}stage': self.stage[idx],
-            f'{prefix}p1_action': self.p1_action[idx],
-            f'{prefix}p1_character': self.p1_character[idx],
-            f'{prefix}p2_action': self.p2_action[idx],
-            f'{prefix}p2_character': self.p2_character[idx]
+            f'{prefix}stage': self.stage,
+            f'{prefix}p1_action': self.p1_action,
+            f'{prefix}p1_character': self.p1_character,
+            f'{prefix}p2_action': self.p2_action,
+            f'{prefix}p2_character': self.p2_character
         }
 
 
@@ -78,7 +79,7 @@ class MeleeDataset(Dataset):
         # print(all_inputs.shape)
         input_continuous = torch.tensor(all_inputs[:, :-num_enums].astype(np.float32), dtype=torch.float32)
         input_enums = EnumColumns.from_tensor(
-            torch.tensor(all_inputs[:, -num_enums:].astype(np.float32), dtype=torch.long)
+            torch.tensor(all_inputs[..., -num_enums:].astype(np.float32), dtype=torch.long)
         )
         
         input_continuous = torch.tensor(
@@ -94,7 +95,7 @@ class MeleeDataset(Dataset):
         all_targets = data['targets']
         target_continuous = torch.tensor(all_targets[:, :-num_enums].astype(np.float32), dtype=torch.float32)
         target_enums = EnumColumns.from_tensor(
-            torch.tensor(all_targets[:, -num_enums:].astype(np.float32), dtype=torch.long)
+            torch.tensor(all_targets[..., -num_enums:].astype(np.float32), dtype=torch.long)
         )
         
         target_continuous = torch.tensor(
@@ -121,9 +122,9 @@ class MeleeDataset(Dataset):
         """
         return {
             'continuous_inputs': self.inputs.continuous[idx],
-            **self.inputs.enums.to_dict(idx=idx),
+            **self.inputs.enums.to_dict(prefix=''),
             'continuous_targets': self.targets.continuous[idx],
-            **self.targets.enums.to_dict(prefix='target_', idx=idx),
+            **self.targets.enums.to_dict(prefix='target_'),
             'match_id': self.inputs.match_id
         }
 
