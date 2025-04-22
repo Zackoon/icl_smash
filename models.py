@@ -105,12 +105,12 @@ class MeleeEncoderDecoder(nn.Module):
         tgt_enum_embed = self.enum_embedder(tgt_enum)
         
         # Debug prints
-        print("src_cont shape:", src_cont.shape)
-        print("Sample enum input shape:", next(iter(src_enum.values())).shape)
-        print("src_enum_embed shape:", src_enum_embed.shape)
+        #print("src_cont shape:", src_cont.shape)
+        #print("Sample enum input shape:", next(iter(src_enum.values())).shape)
+        #print("src_enum_embed shape:", src_enum_embed.shape)
         
         # Step 2: Concatenate continuous + enum embeddings
-        print(f"Shapes src_cont {src_cont.shape}, src_enum_embed {src_enum_embed.shape}, tgt_cont {tgt_cont.shape}, tgt_enum_embed {tgt_enum_embed.shape} ")
+        # print(f"Shapes src_cont {src_cont.shape}, src_enum_embed {src_enum_embed.shape}, tgt_cont {tgt_cont.shape}, tgt_enum_embed {tgt_enum_embed.shape} ")
         src = torch.cat([src_cont, src_enum_embed], dim=-1)
         tgt = torch.cat([tgt_cont, tgt_enum_embed], dim=-1)
 
@@ -123,7 +123,7 @@ class MeleeEncoderDecoder(nn.Module):
         tgt = tgt.permute(1, 0, 2)
 
         memory = self.encoder(src)
-        print(f"memory: {memory.shape}, tgt: {tgt.shape}")
+        #print(f"memory: {memory.shape}, tgt: {tgt.shape}")
         decoder_output = self.decoder(tgt, memory)
         
         # Permute back to (batch, seq_len, d_model)
