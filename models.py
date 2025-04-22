@@ -10,6 +10,7 @@ class EnumEmbeddingModule(nn.Module):
     def __init__(self, enum_dims: Dict[str, int], embedding_dims: Dict[str, int]):
         """Initialize embedding layers for each enum feature."""
         super().__init__()
+        
         self.embeddings = nn.ModuleDict({
             'stage': nn.Embedding(enum_dims['stage'], embedding_dims['stage']),
             'p1_action': nn.Embedding(enum_dims['p1_action'], embedding_dims['p1_action']),
@@ -32,6 +33,7 @@ class EnumEmbeddingModule(nn.Module):
         embeddings = []
         for name in self.feature_names:
             embedded = self.embeddings[name](enum_inputs[name])
+            #print(f"Enum input: {enum_inputs[name].shape}, Embedded: {embedded.shape}")
             embeddings.append(embedded)
         
         return torch.cat(embeddings, dim=-1)
@@ -55,18 +57,18 @@ class MeleeEncoderDecoder(nn.Module):
             num_layers: Number of transformer layers
         """
         super().__init__()
-        
+
         self.enum_embedder = EnumEmbeddingModule(enum_dims, embedding_dims)
         self.enum_embed_dim = self.enum_embedder.total_embedding_dim
         
         # Projections for encoder/decoder inputs
-        self.encoder_proj = nn.Linear(continuous_dim, d_model)
-        self.decoder_proj = nn.Linear(continuous_dim, d_model)
+        self.encoder_proj = nn.Linear(continuous_dim + self.enum_embed_dim, d_model)
+        self.decoder_proj = nn.Linear(continuous_dim + self.enum_embed_dim, d_model)
 
         self.pos_enc = nn.Parameter(torch.randn(1, 100, d_model))  # fixed max seq_len
 
-        encoder_layer = nn.TransformerEncoderLayer(d_model, nhead, batch_first=True)
-        decoder_layer = nn.TransformerDecoderLayer(d_model, nhead, batch_first=True)
+        encoder_layer = nn.TransformerEncoderLayer(d_model, nhead)
+        decoder_layer = nn.TransformerDecoderLayer(d_model, nhead)
 
         self.encoder = nn.TransformerEncoder(encoder_layer, num_layers)
         self.decoder = nn.TransformerDecoder(decoder_layer, num_layers)
@@ -101,12 +103,16 @@ class MeleeEncoderDecoder(nn.Module):
         # Step 1: Embed enums
         src_enum_embed = self.enum_embedder(src_enum)  # (batch, seq_len, enum_embed_dim)
         tgt_enum_embed = self.enum_embedder(tgt_enum)
-
+        
+        # Debug prints
+        print("src_cont shape:", src_cont.shape)
+        print("Sample enum input shape:", next(iter(src_enum.values())).shape)
+        print("src_enum_embed shape:", src_enum_embed.shape)
+        
         # Step 2: Concatenate continuous + enum embeddings
-        src = self.encoder_proj(src_cont)
-        tgt = self.decoder_proj(tgt_cont)
-        src = torch.cat([src, src_enum_embed], dim=-1)
-        tgt = torch.cat([tgt, tgt_enum_embed], dim=-1)
+        print(f"Shapes src_cont {src_cont.shape}, src_enum_embed {src_enum_embed.shape}, tgt_cont {tgt_cont.shape}, tgt_enum_embed {tgt_enum_embed.shape} ")
+        src = torch.cat([src_cont, src_enum_embed], dim=-1)
+        tgt = torch.cat([tgt_cont, tgt_enum_embed], dim=-1)
 
         # Step 3: Positional encoding + projection
         src = self.encoder_proj(src) + self.pos_enc[:, :src.size(1), :]
@@ -117,6 +123,7 @@ class MeleeEncoderDecoder(nn.Module):
         tgt = tgt.permute(1, 0, 2)
 
         memory = self.encoder(src)
+        print(f"memory: {memory.shape}, tgt: {tgt.shape}")
         decoder_output = self.decoder(tgt, memory)
         
         # Permute back to (batch, seq_len, d_model)
