@@ -62,8 +62,6 @@ class MeleeEncoderDecoder(nn.Module):
         # Projections for encoder/decoder inputs
         self.encoder_proj = nn.Linear(continuous_dim, d_model)
         self.decoder_proj = nn.Linear(continuous_dim, d_model)
-        self.encoder_proj = nn.Linear(continuous_dim + self.enum_embed_dim, d_model)
-        self.decoder_proj = nn.Linear(continuous_dim + self.enum_embed_dim, d_model)
 
         self.pos_enc = nn.Parameter(torch.randn(1, 100, d_model))  # fixed max seq_len
 
@@ -107,8 +105,8 @@ class MeleeEncoderDecoder(nn.Module):
         # Step 2: Concatenate continuous + enum embeddings
         src = self.encoder_proj(src_cont)
         tgt = self.decoder_proj(tgt_cont)
-        src = torch.cat([src_cont, src_enum_embed], dim=-1)
-        tgt = torch.cat([tgt_cont, tgt_enum_embed], dim=-1)
+        src = torch.cat([src, src_enum_embed], dim=-1)
+        tgt = torch.cat([tgt, tgt_enum_embed], dim=-1)
 
         # Step 3: Positional encoding + projection
         src = self.encoder_proj(src) + self.pos_enc[:, :src.size(1), :]

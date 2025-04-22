@@ -29,7 +29,7 @@ class EnumColumns:
             p2_character=tensor[..., 4]
         )
 
-    def to_dict(self, prefix: str = '') -> Dict[str, torch.Tensor]:
+    def to_dict(self, idx: int, prefix: str = '') -> Dict[str, torch.Tensor]:
         """Convert EnumColumns to dictionary with indexed tensors.
         
         Args:
@@ -40,11 +40,11 @@ class EnumColumns:
             Dictionary mapping feature names to indexed tensors
         """
         return {
-            f'{prefix}stage': self.stage,
-            f'{prefix}p1_action': self.p1_action,
-            f'{prefix}p1_character': self.p1_character,
-            f'{prefix}p2_action': self.p2_action,
-            f'{prefix}p2_character': self.p2_character
+            f'{prefix}stage': self.stage[idx],
+            f'{prefix}p1_action': self.p1_action[idx],
+            f'{prefix}p1_character': self.p1_character[idx],
+            f'{prefix}p2_action': self.p2_action[idx],
+            f'{prefix}p2_character': self.p2_character[idx]
         }
 
 
@@ -122,9 +122,9 @@ class MeleeDataset(Dataset):
         """
         return {
             'continuous_inputs': self.inputs.continuous[idx],
-            **self.inputs.enums.to_dict(prefix=''),
+            **self.inputs.enums.to_dict(idx=idx),
             'continuous_targets': self.targets.continuous[idx],
-            **self.targets.enums.to_dict(prefix='target_'),
+            **self.targets.enums.to_dict(prefix='target_', idx=idx),
             'match_id': self.inputs.match_id
         }
 
