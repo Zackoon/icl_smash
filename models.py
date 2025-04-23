@@ -73,6 +73,15 @@ class MeleeEncoderDecoder(nn.Module):
         self.encoder = nn.TransformerEncoder(encoder_layer, num_layers)
         self.decoder = nn.TransformerDecoder(decoder_layer, num_layers)
 
+
+        ## ADDED CNN OUTPUT
+        self.post_cnn = nn.Sequential(
+            nn.Conv1d(d_model, d_model, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.Conv1d(d_model, d_model, kernel_size=3, padding=1),
+            nn.ReLU()
+        )
+
         # Output projections for continuous and enum features
         self.continuous_proj = nn.Linear(d_model, continuous_dim)
         self.enum_projs = nn.ModuleDict({
@@ -129,10 +138,15 @@ class MeleeEncoderDecoder(nn.Module):
         # Permute back to (batch, seq_len, d_model)
         decoder_output = decoder_output.permute(1, 0, 2)
 
+        ## APPLY 1D CNN
+        x = decoder_output.permute(0, 2, 1)   # (batch, d_model, seq_len)
+        x = self.post_cnn(x)
+        x = x.permute(0, 2, 1)               # (batch, seq_len, d_model)
+
         # Generate predictions for both continuous and enum features
-        cont_preds = self.continuous_proj(decoder_output)
+        cont_preds = self.continuous_proj(x)
         enum_preds = {
-            name: self.enum_projs[name](decoder_output)
+            name: self.enum_projs[name](x)
             for name in self.enum_dims.keys()
         }
 
