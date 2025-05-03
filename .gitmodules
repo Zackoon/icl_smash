@@ -1,0 +1,4 @@
+[submodule "libmelee"]
+	path = libmelee
+	url = https://github.com/vladfi1/libmelee.git
+	branch = dev

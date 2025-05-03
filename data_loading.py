@@ -62,11 +62,12 @@ class TargetData:
     continuous: torch.Tensor
     enums: EnumColumns
 
+INFERENCE_MODE = "INFERENCE_MODE"
 
 class MeleeDataset(Dataset):
     """Dataset class for Super Smash Bros. Melee data."""
     
-    def __init__(self, data_path: str, match_id: int, num_enums: int):
+    def __init__(self, data_path: str, match_id: int, num_enums: int, all_inputs=None):
         """Initialize dataset.
         
         Args:
@@ -74,38 +75,59 @@ class MeleeDataset(Dataset):
             match_id: Unique identifier for the match
             num_enums: Number of enum columns (taken from end of array)
         """
-        data = np.load(data_path, allow_pickle=True)
-        all_inputs = data['inputs']
-        # print(all_inputs.shape)
-        input_continuous = torch.tensor(all_inputs[:, :-num_enums].astype(np.float32), dtype=torch.float32)
-        input_enums = EnumColumns.from_tensor(
-            torch.tensor(all_inputs[..., -num_enums:].astype(np.float32), dtype=torch.long)
-        )
-        
-        input_continuous = torch.tensor(
-            all_inputs[..., :-num_enums].astype(np.float32), 
-            dtype=torch.float32
-        )
-        self.inputs = InputData(
-            continuous=input_continuous,
-            enums=input_enums,
-            match_id=match_id
-        )
-        
-        all_targets = data['targets']
-        target_continuous = torch.tensor(all_targets[:, :-num_enums].astype(np.float32), dtype=torch.float32)
-        target_enums = EnumColumns.from_tensor(
-            torch.tensor(all_targets[..., -num_enums:].astype(np.float32), dtype=torch.long)
-        )
-        
-        target_continuous = torch.tensor(
-            all_targets[..., :-num_enums].astype(np.float32), 
-            dtype=torch.float32
-        )
-        self.targets = TargetData(
-            continuous=target_continuous,
-            enums=target_enums
-        )
+        if data_path != INFERENCE_MODE:
+            self.inference_mode = False
+            data = np.load(data_path, allow_pickle=True)
+            all_inputs = data['inputs']
+            input_continuous = torch.tensor(all_inputs[:, :-num_enums].astype(np.float32), dtype=torch.float32)
+            input_enums = EnumColumns.from_tensor(
+                torch.tensor(all_inputs[..., -num_enums:].astype(np.float32), dtype=torch.long)
+            )
+            
+            input_continuous = torch.tensor(
+                all_inputs[..., :-num_enums].astype(np.float32), 
+                dtype=torch.float32
+            )
+            self.inputs = InputData(
+                continuous=input_continuous,
+                enums=input_enums,
+                match_id=match_id
+            )
+            
+            all_targets = data['targets']
+            target_continuous = torch.tensor(all_targets[:, :-num_enums].astype(np.float32), dtype=torch.float32)
+            target_enums = EnumColumns.from_tensor(
+                torch.tensor(all_targets[..., -num_enums:].astype(np.float32), dtype=torch.long)
+            )
+            
+            target_continuous = torch.tensor(
+                all_targets[..., :-num_enums].astype(np.float32), 
+                dtype=torch.float32
+            )
+            self.targets = TargetData(
+                continuous=target_continuous,
+                enums=target_enums
+            )
+        else:
+            self.inference_mode = True
+
+            input_continuous = torch.tensor(all_inputs[:, :-num_enums].astype(np.float32), dtype=torch.float32)
+            input_enums = EnumColumns.from_tensor(
+                torch.tensor(all_inputs[..., -num_enums:].astype(np.float32), dtype=torch.long)
+            )
+            
+            input_continuous = torch.tensor(
+                all_inputs[..., :-num_enums].astype(np.float32), 
+                dtype=torch.float32
+            )
+            self.inputs = InputData(
+                continuous=input_continuous,
+                enums=input_enums,
+                match_id=match_id
+            )
+            self.targets = None
+            
+
 
     def __len__(self) -> int:
         """Get dataset length."""
@@ -120,13 +142,20 @@ class MeleeDataset(Dataset):
         Returns:
             Dictionary containing input and target data
         """
-        return {
-            'continuous_inputs': self.inputs.continuous[idx],
-            **self.inputs.enums.to_dict(idx=idx),
-            'continuous_targets': self.targets.continuous[idx],
-            **self.targets.enums.to_dict(prefix='target_', idx=idx),
-            'match_id': self.inputs.match_id
-        }
+        if not self.inference_mode: 
+            return {
+                'continuous_inputs': self.inputs.continuous[idx],
+                **self.inputs.enums.to_dict(idx=idx),
+                'continuous_targets': self.targets.continuous[idx],
+                **self.targets.enums.to_dict(prefix='target_', idx=idx),
+                'match_id': self.inputs.match_id
+            }
+        else:
+            return {
+                'continuous_inputs': self.inputs.continuous[idx],
+                **self.inputs.enums.to_dict(idx=idx),
+                'match_id': self.inputs.match_id
+            }
 
 
 class BatchedFilesDataset:

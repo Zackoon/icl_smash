@@ -141,7 +141,6 @@ def process_slp_file(file_path, sample_freq=15):
     # Convert to DataFrame and numpy array
     df = pd.DataFrame(flattened_frames)
     data = df.to_numpy()
-    # print("Processed slp file shape:", data.shape)
     columns = df.columns.tolist()
 
     # Get all port-based enum columns that exist in the data
@@ -161,6 +160,17 @@ def process_slp_file(file_path, sample_freq=15):
     # Reorder the columns, such that the enum columns are moved to the end
     reordered_data = np.concatenate([data[:, other_indices], data[:, enum_indices]], axis=1)
     reordered_columns = [columns[i] for i in other_indices] + [columns[i] for i in enum_indices]
+    
+    # # Write column information to a file
+    # output_dir = os.path.dirname(file_path) if os.path.dirname(file_path) else "."
+    # base_name = os.path.splitext(os.path.basename(file_path))[0]
+    # column_file = os.path.join(output_dir, f"{base_name}_columns.txt")
+    
+    # with open(column_file, 'w') as f:
+    #     for i, col in enumerate(reordered_columns):
+    #         f.write(f"{i}: {col}\n")
+    
+    # print(f"Column information written to: {column_file}")
     
     # Sample the data
     sampled_idxs = np.arange(0, reordered_data.shape[0], sample_freq)
@@ -183,6 +193,11 @@ def save_processed_data(sampled_data, columns, output_dir, base_filename, save_c
     # Save numpy arrays
     np.save(os.path.join(output_dir, f"{base_filename}_data.npy"), sampled_data)
     np.save(os.path.join(output_dir, f"{base_filename}_columns.npy"), np.array(columns))
+    
+    # # Save column names to a text file for easy reference
+    # with open(os.path.join(output_dir, f"{base_filename}_columns.txt"), 'w') as f:
+    #     for i, col in enumerate(columns):
+    #         f.write(f"{i}: {col}\n")
     
     # Save as CSV if requested
     if save_csv:
