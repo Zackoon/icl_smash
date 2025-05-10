@@ -34,7 +34,7 @@ class LiveGameStatePredictor:
         # Single buffer for storing recent frames
         self.frame_buffer = deque(maxlen=window_size * sample_rate)
         
-        total_dim = self.continuous_dim + self.num_enums
+        total_dim = self.continuous_dim # + self.num_enums
         empty_frame = np.zeros((1, 1, total_dim))
         
         # Fill the buffer with empty frames so the model can begin
@@ -61,26 +61,26 @@ class LiveGameStatePredictor:
     def _load_model(self, model_path):
         """Load the trained model"""
         # Define model architecture (same as during training)
-        enum_dims = {
-            'stage': STAGES_VOCAB_AMOUNT,
-            'p1_action': ACTIONS_VOCAB_AMOUNT,
-            'p1_character': CHARACTERS_VOCAB_AMOUNT,
-            'p2_action': ACTIONS_VOCAB_AMOUNT,
-            'p2_character': CHARACTERS_VOCAB_AMOUNT
-        }
+        # enum_dims = {
+        #     'stage': STAGES_VOCAB_AMOUNT,
+        #     'p1_action': ACTIONS_VOCAB_AMOUNT,
+        #     'p1_character': CHARACTERS_VOCAB_AMOUNT,
+        #     'p2_action': ACTIONS_VOCAB_AMOUNT,
+        #     'p2_character': CHARACTERS_VOCAB_AMOUNT
+        # }
         
-        embedding_dims = {
-            'stage': 16,
-            'p1_action': 64,
-            'p1_character': 16,
-            'p2_action': 64,
-            'p2_character': 16
-        }
+        # embedding_dims = {
+        #     'stage': 16,
+        #     'p1_action': 64,
+        #     'p1_character': 16,
+        #     'p2_action': 64,
+        #     'p2_character': 16
+        # }
         
         model = MeleeEncoderDecoder(
             continuous_dim=54,
-            enum_dims=enum_dims,
-            embedding_dims=embedding_dims,
+            # enum_dims=enum_dims,
+            # embedding_dims=embedding_dims,
             d_model=128,
             nhead=4,
             num_layers=3
@@ -124,12 +124,6 @@ class LiveGameStatePredictor:
                 print(f"WARNING: {zero_count} zero values found in feature_stds")
             self.feature_stds = np.maximum(self.feature_stds, 1e-6)
             
-            # Run comprehensive check
-            stats_check = self.check_normalization_stats()
-            if stats_check["issues"]:
-                print("Issues found in normalization statistics:")
-                for issue in stats_check["issues"]:
-                    print(f"  - {issue}")
         else:
             print(f"Warning: Normalization statistics not found in {stats_dir}")
             self.feature_means = None
@@ -145,6 +139,7 @@ class LiveGameStatePredictor:
         Returns:
             Normalized features (same type as input)
         """
+
         if self.feature_means is None or self.feature_stds is None:
             print("Warning: Normalization statistics not available, using raw features")
             return features
@@ -214,9 +209,10 @@ class LiveGameStatePredictor:
         data = df.to_numpy()
         data = np.expand_dims(data, axis=0)
         continuous_data_normalized = self.normalize_features(data[..., :-self.num_enums])
-        data_normalized = np.concatenate((continuous_data_normalized, data[..., -self.num_enums:]), axis=-1)
+        # print(f"Continuous data normalized shape: {continuous_data_normalized.shape}")
+        # data_normalized = np.concatenate((continuous_data_normalized, data[..., -self.num_enums:]), axis=-1)
         # Add to buffer
-        self.frame_buffer.append(data_normalized)
+        self.frame_buffer.append(continuous_data_normalized)
         
         # Check if we have enough frames
         if len(self.frame_buffer) > self.sample_idxs[-1]:
@@ -256,10 +252,23 @@ class LiveGameStatePredictor:
                     frames_identical = False
                 else:
                     for i, (curr_frame, prev_frame) in enumerate(zip(sampled_frames, self.previous_sampled_frames)):
-                        # Compare the frames
-                        if not np.array_equal(curr_frame, prev_frame):
+                        # Compare the frames, treating NaN values as equal
+                        if not np.all(np.isclose(curr_frame, prev_frame, equal_nan=True)):
                             frames_identical = False
-                            print(f"Frame {i} changed")
+                            # Calculate absolute differences
+                            abs_diff = np.abs(curr_frame - prev_frame)
+                            # Get max difference and its location
+                            max_diff = np.nanmax(abs_diff)
+                            max_diff_idx = np.unravel_index(np.nanargmax(abs_diff), abs_diff.shape)
+                            # Get mean difference (excluding NaNs)
+                            mean_diff = np.nanmean(abs_diff)
+                            print(f"Frame {i} changed:")
+                            print(f"  Max difference: {max_diff:.6f} at index {max_diff_idx}")
+                            print(f"  Mean difference: {mean_diff:.6f}")
+                            # Show the actual values at the location of max difference
+                            print(f"  Values at max diff location:")
+                            print(f"    Current: {curr_frame[max_diff_idx]:.6f}")
+                            print(f"    Previous: {prev_frame[max_diff_idx]:.6f}")
                             break
                 
                 if frames_identical:
@@ -289,7 +298,7 @@ class LiveGameStatePredictor:
                 dataset = MeleeDataset(
                     data_path=INFERENCE_MODE,
                     match_id=1,
-                    num_enums=self.num_enums,
+                    # num_enums= self.num_enums,
                     all_inputs=buffer_array
                 )
             except Exception as e:
@@ -299,34 +308,34 @@ class LiveGameStatePredictor:
             # Get input tensors from dataset
             try:
                 src_cont = dataset.inputs.continuous
-                src_enum = {
-                    'stage': dataset.inputs.enums.stage,
-                    'p1_action': dataset.inputs.enums.p1_action,
-                    'p1_character': dataset.inputs.enums.p1_character,
-                    'p2_action': dataset.inputs.enums.p2_action,
-                    'p2_character': dataset.inputs.enums.p2_character
-                }
+                # src_enum = {
+                #     'stage': dataset.inputs.enums.stage,
+                #     'p1_action': dataset.inputs.enums.p1_action,
+                #     'p1_character': dataset.inputs.enums.p1_character,
+                #     'p2_action': dataset.inputs.enums.p2_action,
+                #     'p2_character': dataset.inputs.enums.p2_character
+                # }
                 
                 # Debug enum values and clamp to valid ranges
-                for name, tensor in src_enum.items():
-                    min_val = tensor.min().item()
-                    max_val = tensor.max().item()
-                    print(f"Enum {name} values: min={min_val}, max={max_val}")
+                # for name, tensor in src_enum.items():
+                #     min_val = tensor.min().item()
+                #     max_val = tensor.max().item()
+                #     print(f"Enum {name} values: min={min_val}, max={max_val}")
                     
-                    # First, ensure all values are non-negative
-                    if min_val < 0:
-                        print(f"WARNING: {name} has negative values, clamping to non-negative")
-                        src_enum[name] = torch.clamp(tensor, 0, None)
+                #     # First, ensure all values are non-negative
+                #     if min_val < 0:
+                #         print(f"WARNING: {name} has negative values, clamping to non-negative")
+                #         #src_enum[name] = torch.clamp(tensor, 0, None)
                     
-                    # Then, check embedding size and clamp to valid range
-                    if hasattr(self.model.enum_embedder.embeddings, name):
-                        embed_size = self.model.enum_embedder.embeddings[name].weight.shape[0]
-                        print(f"Embedding size for {name}: {embed_size}")
+                #     # Then, check embedding size and clamp to valid range
+                #     if hasattr(self.model.enum_embedder.embeddings, name):
+                #         embed_size = self.model.enum_embedder.embeddings[name].weight.shape[0]
+                #         print(f"Embedding size for {name}: {embed_size}")
                         
-                        # Clamp values to valid range
-                        if max_val >= embed_size:
-                            print(f"WARNING: {name} has values >= embedding size {embed_size}, clamping")
-                            src_enum[name] = torch.clamp(src_enum[name], 0, embed_size - 1)
+                #         # Clamp values to valid range
+                #         if max_val >= embed_size:
+                #             print(f"WARNING: {name} has values >= embedding size {embed_size}, clamping")
+                #             src_enum[name] = torch.clamp(src_enum[name], 0, embed_size - 1)
             except Exception as e:
                 print(f"Error preparing input tensors: {e}")
                 raise
@@ -336,10 +345,10 @@ class LiveGameStatePredictor:
             device = src_cont.device
             
             tgt_cont = torch.zeros((batch_size, 5, self.continuous_dim), device=device)
-            tgt_enum = {
-                name: torch.zeros((batch_size, 5), dtype=torch.long, device=device)
-                for name in src_enum.keys()
-            }
+            # tgt_enum = {
+            #     name: torch.zeros((batch_size, 5), dtype=torch.long, device=device)
+            #     for name in src_enum.keys()
+            # }
             
             # Make prediction for just the next frame
             try:
@@ -357,13 +366,13 @@ class LiveGameStatePredictor:
                         src_cont = torch.nan_to_num(src_cont, nan=0.0)
                     
                     # Check enum inputs for invalid values
-                    for name, tensor in src_enum.items():
-                        if torch.isnan(tensor.float()).any():
-                            print(f"WARNING: NaN values detected in {name} enum tensor")
-                            src_enum[name] = torch.nan_to_num(tensor.float(), nan=0.0).long()
+                    # for name, tensor in src_enum.items():
+                    #     if torch.isnan(tensor.float()).any():
+                    #         print(f"WARNING: NaN values detected in {name} enum tensor")
+                    #         src_enum[name] = torch.nan_to_num(tensor.float(), nan=0.0).long()
                     
                     # Forward pass
-                    cont_pred, enum_pred = self.model(src_cont, src_enum, tgt_cont, tgt_enum)
+                    cont_pred = self.model(src_cont, tgt_cont)
                     
                     # Check for NaNs in continuous predictions
                     if torch.isnan(cont_pred).any():
@@ -379,17 +388,17 @@ class LiveGameStatePredictor:
                         cont_pred = torch.nan_to_num(cont_pred, nan=0.0)
                     
                     # Check for NaNs in enum predictions
-                    for name, pred in enum_pred.items():
-                        if torch.isnan(pred).any():
-                            print(f"WARNING: NaN values detected in {name} enum predictions")
-                            enum_pred[name] = torch.nan_to_num(pred, nan=0.0)
+                    # for name, pred in enum_pred.items():
+                    #     if torch.isnan(pred).any():
+                    #         print(f"WARNING: NaN values detected in {name} enum predictions")
+                    #         enum_pred[name] = torch.nan_to_num(pred, nan=0.0)
                     
                     # Get only the first prediction
                     next_cont = cont_pred[:, 0, :].squeeze(0).numpy()
-                    next_enum = {
-                        name: torch.argmax(pred[:, 0, :], dim=1).squeeze(0).item()
-                        for name, pred in enum_pred.items()
-                    }
+                    # next_enum = {
+                    #     name: torch.argmax(pred[:, 0, :], dim=1).squeeze(0).item()
+                    #     for name, pred in enum_pred.items()
+                    # }
                     
                     # Check for NaNs in numpy array
                     if np.isnan(next_cont).any():
@@ -426,23 +435,21 @@ class LiveGameStatePredictor:
                                 print(f"NaN indices in feature_stds: {nan_indices[:10]} (showing first 10)")
                             
                             next_cont = np.nan_to_num(next_cont, nan=0.0)
-            
-            # Final check for NaNs in the return values
-            if np.isnan(next_cont).any():
-                print("WARNING: Final next_cont still contains NaN values")
-                next_cont = np.nan_to_num(next_cont, nan=0.0)
-            
-            return {
-                'continuous': next_cont,
-                'enums': next_enum
-            }
-                
+                    
+                    # Final check for NaNs in the return values
+                    if np.isnan(next_cont).any():
+                        print("WARNING: Final next_cont still contains NaN values")
+                        next_cont = np.nan_to_num(next_cont, nan=0.0)
+                    
+                    return {
+                        'continuous': next_cont,
+                        # 'enums': next_enum
+                    }
             except Exception as e:
                 print(f"Error during model prediction: {e}")
                 import traceback
                 traceback.print_exc()
                 raise
-    
         except Exception as e:
             print(f"Error in predict_next_frame: {e}")
             import traceback
@@ -476,7 +483,7 @@ class LiveGameStatePredictor:
             # 'MAIN': (7, 8),     # (main_stick_x, main_stick_y)
             # 'C': (3, 4),        # (c_stick_x, c_stick_y)
 
-            # TODO: Note that  for buttons, anything > 0 will count as a button press
+            # TODO: Note that for buttons, anything > 0 will count as a button press. Could consider taking the max 
             button_values =  {key: next_frame['continuous'][0, 0, value] for key, value in button_to_next_frame_index.items() if next_frame['continuous'][0, 0, value] > 0}
             
             # TODO: L and R shield and Z override any other input, so impose a harsher threshold
@@ -515,7 +522,7 @@ class LiveGameStatePredictor:
         if gamestate.players[1].action_frame == 3:
             controller.release_all()
             return
-        
+        print("Button values:", button_values)
         # Process each button in the prediction
         for button, value in button_values.items():
             match button:
@@ -547,15 +554,15 @@ class LiveGameStatePredictor:
                 case 'MAIN':
                     main_x, main_y = value
                     # Ensure values are between 0 and 1 for tilt_analog
-                    main_x = min(max((main_x + 1) / 2, 0), 1)
-                    main_y = min(max((main_y + 1) / 2, 0), 1)
+                    # main_x = min(max((main_x + 1) / 2, 0), 1)
+                    # main_y = min(max((main_y + 1) / 2, 0), 1)
                     controller.tilt_analog(melee.enums.Button.BUTTON_MAIN, main_x, main_y)
                     print(f"Tilting main stick: x={main_x:.2f}, y={main_y:.2f}")
                 case 'C':
                     c_x, c_y = value
                     # Ensure values are between 0 and 1 for tilt_analog
-                    c_x = min(max((c_x + 1) / 2, 0), 1)
-                    c_y = min(max((c_y + 1) / 2, 0), 1)
+                    # c_x = min(max((c_x + 1) / 2, 0), 1)
+                    # c_y = min(max((c_y + 1) / 2, 0), 1)
                     controller.tilt_analog(melee.enums.Button.BUTTON_C, c_x, c_y)
                     print(f"Tilting C stick: x={c_x:.2f}, y={c_y:.2f}")
                 case _:
@@ -564,136 +571,137 @@ class LiveGameStatePredictor:
         
         # Flush the controller to ensure inputs are sent
         # controller.flush()
+    # Deprecated since enums removed
 
-    def test_model_responsiveness(self):
-        """
-        Test if the model responds to different inputs
-        """
-        print("Testing model responsiveness...")
+    # def test_model_responsiveness(self):
+    #     """
+    #     Test if the model responds to different inputs
+    #     """
+    #     print("Testing model responsiveness...")
         
-        # Create two different test inputs
-        device = next(self.model.parameters()).device
-        test_batch_size = 1
-        test_seq_len = 10
+    #     # Create two different test inputs
+    #     device = next(self.model.parameters()).device
+    #     test_batch_size = 1
+    #     test_seq_len = 10
         
-        # Test input 1 - all zeros
-        test_cont_1 = torch.zeros((test_batch_size, test_seq_len, self.continuous_dim), device=device)
-        test_enum_1 = {
-            name: torch.zeros((test_batch_size, test_seq_len), dtype=torch.long, device=device)
-            for name in ['stage', 'p1_action', 'p1_character', 'p2_action', 'p2_character']
-        }
+    #     # Test input 1 - all zeros
+    #     test_cont_1 = torch.zeros((test_batch_size, test_seq_len, self.continuous_dim), device=device)
+    #     test_enum_1 = {
+    #         name: torch.zeros((test_batch_size, test_seq_len), dtype=torch.long, device=device)
+    #         for name in ['stage', 'p1_action', 'p1_character', 'p2_action', 'p2_character']
+    #     }
         
-        # Test input 2 - random values
-        test_cont_2 = torch.rand((test_batch_size, test_seq_len, self.continuous_dim), device=device)
-        test_enum_2 = {
-            name: torch.randint(0, dim-1, (test_batch_size, test_seq_len), dtype=torch.long, device=device)
-            for name, dim in {'stage': STAGES_VOCAB_AMOUNT, 
-                             'p1_action': ACTIONS_VOCAB_AMOUNT,
-                             'p1_character': CHARACTERS_VOCAB_AMOUNT, 
-                             'p2_action': ACTIONS_VOCAB_AMOUNT,
-                             'p2_character': CHARACTERS_VOCAB_AMOUNT}.items()
-        }
+    #     # Test input 2 - random values
+    #     test_cont_2 = torch.rand((test_batch_size, test_seq_len, self.continuous_dim), device=device)
+    #     test_enum_2 = {
+    #         name: torch.randint(0, dim-1, (test_batch_size, test_seq_len), dtype=torch.long, device=device)
+    #         for name, dim in {'stage': STAGES_VOCAB_AMOUNT, 
+    #                          'p1_action': ACTIONS_VOCAB_AMOUNT,
+    #                          'p1_character': CHARACTERS_VOCAB_AMOUNT, 
+    #                          'p2_action': ACTIONS_VOCAB_AMOUNT,
+    #                          'p2_character': CHARACTERS_VOCAB_AMOUNT}.items()
+    #     }
         
-        # Target inputs (same for both tests)
-        tgt_cont = torch.zeros((test_batch_size, 5, self.continuous_dim), device=device)
-        tgt_enum = {
-            name: torch.zeros((test_batch_size, 5), dtype=torch.long, device=device)
-            for name in test_enum_1.keys()
-        }
+    #     # Target inputs (same for both tests)
+    #     tgt_cont = torch.zeros((test_batch_size, 5, self.continuous_dim), device=device)
+    #     tgt_enum = {
+    #         name: torch.zeros((test_batch_size, 5), dtype=torch.long, device=device)
+    #         for name in test_enum_1.keys()
+    #     }
         
-        # Run predictions
-        with torch.no_grad():
-            cont_pred_1, enum_pred_1 = self.model(test_cont_1, test_enum_1, tgt_cont, tgt_enum)
-            cont_pred_2, enum_pred_2 = self.model(test_cont_2, test_enum_2, tgt_cont, tgt_enum)
+    #     # Run predictions
+    #     with torch.no_grad():
+    #         cont_pred_1, enum_pred_1 = self.model(test_cont_1, test_enum_1, tgt_cont, tgt_enum)
+    #         cont_pred_2, enum_pred_2 = self.model(test_cont_2, test_enum_2, tgt_cont, tgt_enum)
         
-        # Compare outputs
-        cont_diff = (cont_pred_1 - cont_pred_2).abs().mean().item()
-        enum_diff = sum((pred_1[:, 0, :] - pred_2[:, 0, :]).abs().mean().item() 
-                       for name, (pred_1, pred_2) in 
-                       zip(test_enum_1.keys(), zip(enum_pred_1.values(), enum_pred_2.values()))) / len(test_enum_1)
+    #     # Compare outputs
+    #     cont_diff = (cont_pred_1 - cont_pred_2).abs().mean().item()
+    #     enum_diff = sum((pred_1[:, 0, :] - pred_2[:, 0, :]).abs().mean().item() 
+    #                    for name, (pred_1, pred_2) in 
+    #                    zip(test_enum_1.keys(), zip(enum_pred_1.values(), enum_pred_2.values()))) / len(test_enum_1)
         
-        print(f"Continuous prediction difference: {cont_diff:.6f}")
-        print(f"Enum prediction difference: {enum_diff:.6f}")
+    #     print(f"Continuous prediction difference: {cont_diff:.6f}")
+    #     print(f"Enum prediction difference: {enum_diff:.6f}")
         
-        if cont_diff < 1e-6 and enum_diff < 1e-6:
-            print("WARNING: Model produces nearly identical outputs for different inputs!")
-            print("This suggests the model may not be responsive to input changes.")
-        else:
-            print("Model produces different outputs for different inputs as expected.")
+    #     if cont_diff < 1e-6 and enum_diff < 1e-6:
+    #         print("WARNING: Model produces nearly identical outputs for different inputs!")
+    #         print("This suggests the model may not be responsive to input changes.")
+    #     else:
+    #         print("Model produces different outputs for different inputs as expected.")
         
-        return cont_diff, enum_diff
+    #     return cont_diff, enum_diff
 
-    def check_normalization_stats(self):
-        """
-        Check normalization statistics for NaN values and other issues
+    # def check_normalization_stats(self):
+    #     """
+    #     Check normalization statistics for NaN values and other issues
     
-        Returns:
-            dict: Dictionary with diagnostic information
-        """
-        results = {
-            "has_means": self.feature_means is not None,
-            "has_stds": self.feature_stds is not None,
-            "issues": []
-        }
+    #     Returns:
+    #         dict: Dictionary with diagnostic information
+    #     """
+    #     results = {
+    #         "has_means": self.feature_means is not None,
+    #         "has_stds": self.feature_stds is not None,
+    #         "issues": []
+    #     }
         
-        if self.feature_means is None or self.feature_stds is None:
-            results["issues"].append("Missing normalization statistics")
-            return results
+    #     if self.feature_means is None or self.feature_stds is None:
+    #         results["issues"].append("Missing normalization statistics")
+    #         return results
         
-        # Check for NaNs in means
-        if np.isnan(self.feature_means).any():
-            nan_count = np.isnan(self.feature_means).sum()
-            total = self.feature_means.size
-            results["issues"].append(f"NaN values in means: {nan_count}/{total} ({nan_count/total*100:.2f}%)")
-            nan_indices = np.where(np.isnan(self.feature_means))[0]
-            results["mean_nan_indices"] = nan_indices[:10].tolist()  # First 10 indices
+    #     # Check for NaNs in means
+    #     if np.isnan(self.feature_means).any():
+    #         nan_count = np.isnan(self.feature_means).sum()
+    #         total = self.feature_means.size
+    #         results["issues"].append(f"NaN values in means: {nan_count}/{total} ({nan_count/total*100:.2f}%)")
+    #         nan_indices = np.where(np.isnan(self.feature_means))[0]
+    #         results["mean_nan_indices"] = nan_indices[:10].tolist()  # First 10 indices
         
-        # Check for NaNs in stds
-        if np.isnan(self.feature_stds).any():
-            nan_count = np.isnan(self.feature_stds).sum()
-            total = self.feature_stds.size
-            results["issues"].append(f"NaN values in stds: {nan_count}/{total} ({nan_count/total*100:.2f}%)")
-            nan_indices = np.where(np.isnan(self.feature_stds))[0]
-            results["std_nan_indices"] = nan_indices[:10].tolist()  # First 10 indices
+    #     # Check for NaNs in stds
+    #     if np.isnan(self.feature_stds).any():
+    #         nan_count = np.isnan(self.feature_stds).sum()
+    #         total = self.feature_stds.size
+    #         results["issues"].append(f"NaN values in stds: {nan_count}/{total} ({nan_count/total*100:.2f}%)")
+    #         nan_indices = np.where(np.isnan(self.feature_stds))[0]
+    #         results["std_nan_indices"] = nan_indices[:10].tolist()  # First 10 indices
         
-        # Check for zeros in stds (can cause division by zero)
-        if (self.feature_stds == 0).any():
-            zero_count = (self.feature_stds == 0).sum()
-            total = self.feature_stds.size
-            results["issues"].append(f"Zero values in stds: {zero_count}/{total} ({zero_count/total*100:.2f}%)")
-            zero_indices = np.where(self.feature_stds == 0)[0]
-            results["std_zero_indices"] = zero_indices[:10].tolist()  # First 10 indices
+    #     # Check for zeros in stds (can cause division by zero)
+    #     if (self.feature_stds == 0).any():
+    #         zero_count = (self.feature_stds == 0).sum()
+    #         total = self.feature_stds.size
+    #         results["issues"].append(f"Zero values in stds: {zero_count}/{total} ({zero_count/total*100:.2f}%)")
+    #         zero_indices = np.where(self.feature_stds == 0)[0]
+    #         results["std_zero_indices"] = zero_indices[:10].tolist()  # First 10 indices
         
-        # Check for very small values in stds (can cause numerical instability)
-        small_threshold = 1e-6
-        if ((self.feature_stds < small_threshold) & (self.feature_stds > 0)).any():
-            small_count = ((self.feature_stds < small_threshold) & (self.feature_stds > 0)).sum()
-            total = self.feature_stds.size
-            results["issues"].append(f"Very small values in stds: {small_count}/{total} ({small_count/total*100:.2f}%)")
-            small_indices = np.where((self.feature_stds < small_threshold) & (self.feature_stds > 0))[0]
-            results["std_small_indices"] = small_indices[:10].tolist()  # First 10 indices
+    #     # Check for very small values in stds (can cause numerical instability)
+    #     small_threshold = 1e-6
+    #     if ((self.feature_stds < small_threshold) & (self.feature_stds > 0)).any():
+    #         small_count = ((self.feature_stds < small_threshold) & (self.feature_stds > 0)).sum()
+    #         total = self.feature_stds.size
+    #         results["issues"].append(f"Very small values in stds: {small_count}/{total} ({small_count/total*100:.2f}%)")
+    #         small_indices = np.where((self.feature_stds < small_threshold) & (self.feature_stds > 0))[0]
+    #         results["std_small_indices"] = small_indices[:10].tolist()  # First 10 indices
         
-        # Check for infinite values
-        if np.isinf(self.feature_means).any():
-            inf_count = np.isinf(self.feature_means).sum()
-            results["issues"].append(f"Infinite values in means: {inf_count}")
+    #     # Check for infinite values
+    #     if np.isinf(self.feature_means).any():
+    #         inf_count = np.isinf(self.feature_means).sum()
+    #         results["issues"].append(f"Infinite values in means: {inf_count}")
         
-        if np.isinf(self.feature_stds).any():
-            inf_count = np.isinf(self.feature_stds).sum()
-            results["issues"].append(f"Infinite values in stds: {inf_count}")
+    #     if np.isinf(self.feature_stds).any():
+    #         inf_count = np.isinf(self.feature_stds).sum()
+    #         results["issues"].append(f"Infinite values in stds: {inf_count}")
         
-        # Add basic statistics
-        results["mean_stats"] = {
-            "min": float(np.nanmin(self.feature_means)),
-            "max": float(np.nanmax(self.feature_means)),
-            "avg": float(np.nanmean(self.feature_means))
-        }
+    #     # Add basic statistics
+    #     results["mean_stats"] = {
+    #         "min": float(np.nanmin(self.feature_means)),
+    #         "max": float(np.nanmax(self.feature_means)),
+    #         "avg": float(np.nanmean(self.feature_means))
+    #     }
         
-        results["std_stats"] = {
-            "min": float(np.nanmin(self.feature_stds)),
-            "max": float(np.nanmax(self.feature_stds)),
-            "avg": float(np.nanmean(self.feature_stds))
-        }
+    #     results["std_stats"] = {
+    #         "min": float(np.nanmin(self.feature_stds)),
+    #         "max": float(np.nanmax(self.feature_stds)),
+    #         "avg": float(np.nanmean(self.feature_stds))
+    #     }
         
-        return results
+    #     return results
 

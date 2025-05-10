@@ -29,7 +29,7 @@ if __name__ == "__main__":
                         help='The directory where dolphin is')
     parser.add_argument('--iso', default=None, type=str,
                         help='Path to melee iso.')
-    parser.add_argument('--model', default="./models_params/May2nd_melee_predictor_all.pt", type=str,
+    parser.add_argument('--model', default="./models_params/melee_predictor_continuous.pt", type=str,
                         help='Path to the trained model file')
     parser.add_argument('--stats_dir', default="./models_params", type=str,
                         help='Directory containing normalization statistics')
