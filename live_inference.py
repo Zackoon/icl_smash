@@ -1,4 +1,3 @@
-from libmelee.melee.techskill import multishine
 import torch
 import numpy as np
 import pandas as pd
@@ -52,6 +51,12 @@ class LiveGameStatePredictor:
         
         # Number of continuous features
         self.continuous_dim = 54  # Adjust based on your feature dimension
+        
+        # Add tracking for previous predictions and frames
+        self.previous_prediction = None
+        self.consecutive_same_predictions = 0
+        self.previous_sampled_frames = None
+        self.consecutive_same_frames = 0
 
     def _load_model(self, model_path):
         """Load the trained model"""
@@ -100,8 +105,31 @@ class LiveGameStatePredictor:
             self.feature_stds = torch.load(std_path, map_location=torch.device('cpu')).numpy()
             print(f"Loaded normalization statistics from {stats_dir}")
             
+            # Check for NaN values in loaded statistics
+            if np.isnan(self.feature_means).any():
+                nan_count = np.isnan(self.feature_means).sum()
+                print(f"WARNING: {nan_count} NaN values found in feature_means")
+                # Replace NaNs with zeros
+                self.feature_means = np.nan_to_num(self.feature_means, nan=0.0)
+            
+            if np.isnan(self.feature_stds).any():
+                nan_count = np.isnan(self.feature_stds).sum()
+                print(f"WARNING: {nan_count} NaN values found in feature_stds")
+                # Replace NaNs with ones (neutral for division)
+                self.feature_stds = np.nan_to_num(self.feature_stds, nan=1.0)
+            
             # Ensure std doesn't have zeros to avoid division by zero
+            zero_count = (self.feature_stds == 0).sum()
+            if zero_count > 0:
+                print(f"WARNING: {zero_count} zero values found in feature_stds")
             self.feature_stds = np.maximum(self.feature_stds, 1e-6)
+            
+            # Run comprehensive check
+            stats_check = self.check_normalization_stats()
+            if stats_check["issues"]:
+                print("Issues found in normalization statistics:")
+                for issue in stats_check["issues"]:
+                    print(f"  - {issue}")
         else:
             print(f"Warning: Normalization statistics not found in {stats_dir}")
             self.feature_means = None
@@ -220,6 +248,30 @@ class LiveGameStatePredictor:
             # Get evenly spaced frames
             sampled_frames = [self.frame_buffer[i] for i in self.sample_idxs]
             
+            # Check if sampled frames are identical to previous ones
+            if self.previous_sampled_frames is not None:
+                frames_identical = True
+                
+                if len(sampled_frames) != len(self.previous_sampled_frames):
+                    frames_identical = False
+                else:
+                    for i, (curr_frame, prev_frame) in enumerate(zip(sampled_frames, self.previous_sampled_frames)):
+                        # Compare the frames
+                        if not np.array_equal(curr_frame, prev_frame):
+                            frames_identical = False
+                            print(f"Frame {i} changed")
+                            break
+                
+                if frames_identical:
+                    self.consecutive_same_frames += 1
+                    print(f"WARNING: Same sampled frames {self.consecutive_same_frames} times in a row")
+                else:
+                    self.consecutive_same_frames = 0
+                    print("Sampled frames changed!")
+            
+            # Store current frames for next comparison
+            self.previous_sampled_frames = [frame.copy() for frame in sampled_frames]
+            
             # Debug info
             print(f"Sampled {len(sampled_frames)} frames")
             
@@ -294,13 +346,43 @@ class LiveGameStatePredictor:
                 with torch.no_grad():
                     # Forward pass
                     print("src_cont", src_cont.shape, "tgt_cont", tgt_cont.shape)
+                    
+                    # Check for NaNs in input tensors
+                    if torch.isnan(src_cont).any():
+                        print("WARNING: NaN values detected in src_cont input tensor")
+                        # Find which elements are NaN
+                        nan_indices = torch.where(torch.isnan(src_cont))
+                        print(f"NaN indices in src_cont: {list(zip(*[idx.tolist() for idx in nan_indices]))[:10]} (showing first 10)")
+                        # Replace NaNs with zeros
+                        src_cont = torch.nan_to_num(src_cont, nan=0.0)
+                    
+                    # Check enum inputs for invalid values
+                    for name, tensor in src_enum.items():
+                        if torch.isnan(tensor.float()).any():
+                            print(f"WARNING: NaN values detected in {name} enum tensor")
+                            src_enum[name] = torch.nan_to_num(tensor.float(), nan=0.0).long()
+                    
+                    # Forward pass
                     cont_pred, enum_pred = self.model(src_cont, src_enum, tgt_cont, tgt_enum)
                     
-                    # Check for NaN values in predictions
+                    # Check for NaNs in continuous predictions
                     if torch.isnan(cont_pred).any():
-                        print("Warning: NaN values detected in continuous predictions")
+                        print("WARNING: NaN values detected in continuous predictions")
+                        # Find which elements are NaN
+                        nan_indices = torch.where(torch.isnan(cont_pred))
+                        print(f"NaN indices in cont_pred: {list(zip(*[idx.tolist() for idx in nan_indices]))[:10]} (showing first 10)")
+                        # Count NaNs
+                        nan_count = torch.isnan(cont_pred).sum().item()
+                        total_elements = cont_pred.numel()
+                        print(f"NaN count: {nan_count}/{total_elements} ({nan_count/total_elements*100:.2f}%)")
                         # Replace NaNs with zeros
                         cont_pred = torch.nan_to_num(cont_pred, nan=0.0)
+                    
+                    # Check for NaNs in enum predictions
+                    for name, pred in enum_pred.items():
+                        if torch.isnan(pred).any():
+                            print(f"WARNING: NaN values detected in {name} enum predictions")
+                            enum_pred[name] = torch.nan_to_num(pred, nan=0.0)
                     
                     # Get only the first prediction
                     next_cont = cont_pred[:, 0, :].squeeze(0).numpy()
@@ -309,23 +391,58 @@ class LiveGameStatePredictor:
                         for name, pred in enum_pred.items()
                     }
                     
+                    # Check for NaNs in numpy array
+                    if np.isnan(next_cont).any():
+                        print("WARNING: NaN values detected in next_cont numpy array")
+                        # Find which elements are NaN
+                        nan_indices = np.where(np.isnan(next_cont))[0]
+                        print(f"NaN indices in next_cont: {nan_indices[:10]} (showing first 10)")
+                        # Count NaNs
+                        nan_count = np.isnan(next_cont).sum()
+                        total_elements = next_cont.size
+                        print(f"NaN count: {nan_count}/{total_elements} ({nan_count/total_elements*100:.2f}%)")
+                        # Replace NaNs with zeros
+                        next_cont = np.nan_to_num(next_cont, nan=0.0)
+                    
                     # Denormalize the continuous predictions if we have normalization stats
                     if self.feature_means is not None and self.feature_stds is not None:
                         next_cont = (next_cont * self.feature_stds) + self.feature_means
                         
                         # Check for NaN values after denormalization
                         if np.isnan(next_cont).any():
-                            print("Warning: NaN values detected after denormalization")
+                            print("WARNING: NaN values detected after denormalization")
+                            # Find which elements are NaN
+                            nan_indices = np.where(np.isnan(next_cont))[0]
+                            print(f"NaN indices after denormalization: {nan_indices[:10]} (showing first 10)")
+                            # Check if NaNs are coming from feature_means or feature_stds
+                            if np.isnan(self.feature_means).any():
+                                print("WARNING: NaN values detected in feature_means")
+                                nan_indices = np.where(np.isnan(self.feature_means))[0]
+                                print(f"NaN indices in feature_means: {nan_indices[:10]} (showing first 10)")
+                            
+                            if np.isnan(self.feature_stds).any():
+                                print("WARNING: NaN values detected in feature_stds")
+                                nan_indices = np.where(np.isnan(self.feature_stds))[0]
+                                print(f"NaN indices in feature_stds: {nan_indices[:10]} (showing first 10)")
+                            
                             next_cont = np.nan_to_num(next_cont, nan=0.0)
-            except Exception as e:
-                print(f"Error during model prediction: {e}")
-                raise
+            
+            # Final check for NaNs in the return values
+            if np.isnan(next_cont).any():
+                print("WARNING: Final next_cont still contains NaN values")
+                next_cont = np.nan_to_num(next_cont, nan=0.0)
             
             return {
                 'continuous': next_cont,
                 'enums': next_enum
             }
-        
+                
+            except Exception as e:
+                print(f"Error during model prediction: {e}")
+                import traceback
+                traceback.print_exc()
+                raise
+    
         except Exception as e:
             print(f"Error in predict_next_frame: {e}")
             import traceback
@@ -447,4 +564,136 @@ class LiveGameStatePredictor:
         
         # Flush the controller to ensure inputs are sent
         # controller.flush()
+
+    def test_model_responsiveness(self):
+        """
+        Test if the model responds to different inputs
+        """
+        print("Testing model responsiveness...")
         
+        # Create two different test inputs
+        device = next(self.model.parameters()).device
+        test_batch_size = 1
+        test_seq_len = 10
+        
+        # Test input 1 - all zeros
+        test_cont_1 = torch.zeros((test_batch_size, test_seq_len, self.continuous_dim), device=device)
+        test_enum_1 = {
+            name: torch.zeros((test_batch_size, test_seq_len), dtype=torch.long, device=device)
+            for name in ['stage', 'p1_action', 'p1_character', 'p2_action', 'p2_character']
+        }
+        
+        # Test input 2 - random values
+        test_cont_2 = torch.rand((test_batch_size, test_seq_len, self.continuous_dim), device=device)
+        test_enum_2 = {
+            name: torch.randint(0, dim-1, (test_batch_size, test_seq_len), dtype=torch.long, device=device)
+            for name, dim in {'stage': STAGES_VOCAB_AMOUNT, 
+                             'p1_action': ACTIONS_VOCAB_AMOUNT,
+                             'p1_character': CHARACTERS_VOCAB_AMOUNT, 
+                             'p2_action': ACTIONS_VOCAB_AMOUNT,
+                             'p2_character': CHARACTERS_VOCAB_AMOUNT}.items()
+        }
+        
+        # Target inputs (same for both tests)
+        tgt_cont = torch.zeros((test_batch_size, 5, self.continuous_dim), device=device)
+        tgt_enum = {
+            name: torch.zeros((test_batch_size, 5), dtype=torch.long, device=device)
+            for name in test_enum_1.keys()
+        }
+        
+        # Run predictions
+        with torch.no_grad():
+            cont_pred_1, enum_pred_1 = self.model(test_cont_1, test_enum_1, tgt_cont, tgt_enum)
+            cont_pred_2, enum_pred_2 = self.model(test_cont_2, test_enum_2, tgt_cont, tgt_enum)
+        
+        # Compare outputs
+        cont_diff = (cont_pred_1 - cont_pred_2).abs().mean().item()
+        enum_diff = sum((pred_1[:, 0, :] - pred_2[:, 0, :]).abs().mean().item() 
+                       for name, (pred_1, pred_2) in 
+                       zip(test_enum_1.keys(), zip(enum_pred_1.values(), enum_pred_2.values()))) / len(test_enum_1)
+        
+        print(f"Continuous prediction difference: {cont_diff:.6f}")
+        print(f"Enum prediction difference: {enum_diff:.6f}")
+        
+        if cont_diff < 1e-6 and enum_diff < 1e-6:
+            print("WARNING: Model produces nearly identical outputs for different inputs!")
+            print("This suggests the model may not be responsive to input changes.")
+        else:
+            print("Model produces different outputs for different inputs as expected.")
+        
+        return cont_diff, enum_diff
+
+    def check_normalization_stats(self):
+        """
+        Check normalization statistics for NaN values and other issues
+    
+        Returns:
+            dict: Dictionary with diagnostic information
+        """
+        results = {
+            "has_means": self.feature_means is not None,
+            "has_stds": self.feature_stds is not None,
+            "issues": []
+        }
+        
+        if self.feature_means is None or self.feature_stds is None:
+            results["issues"].append("Missing normalization statistics")
+            return results
+        
+        # Check for NaNs in means
+        if np.isnan(self.feature_means).any():
+            nan_count = np.isnan(self.feature_means).sum()
+            total = self.feature_means.size
+            results["issues"].append(f"NaN values in means: {nan_count}/{total} ({nan_count/total*100:.2f}%)")
+            nan_indices = np.where(np.isnan(self.feature_means))[0]
+            results["mean_nan_indices"] = nan_indices[:10].tolist()  # First 10 indices
+        
+        # Check for NaNs in stds
+        if np.isnan(self.feature_stds).any():
+            nan_count = np.isnan(self.feature_stds).sum()
+            total = self.feature_stds.size
+            results["issues"].append(f"NaN values in stds: {nan_count}/{total} ({nan_count/total*100:.2f}%)")
+            nan_indices = np.where(np.isnan(self.feature_stds))[0]
+            results["std_nan_indices"] = nan_indices[:10].tolist()  # First 10 indices
+        
+        # Check for zeros in stds (can cause division by zero)
+        if (self.feature_stds == 0).any():
+            zero_count = (self.feature_stds == 0).sum()
+            total = self.feature_stds.size
+            results["issues"].append(f"Zero values in stds: {zero_count}/{total} ({zero_count/total*100:.2f}%)")
+            zero_indices = np.where(self.feature_stds == 0)[0]
+            results["std_zero_indices"] = zero_indices[:10].tolist()  # First 10 indices
+        
+        # Check for very small values in stds (can cause numerical instability)
+        small_threshold = 1e-6
+        if ((self.feature_stds < small_threshold) & (self.feature_stds > 0)).any():
+            small_count = ((self.feature_stds < small_threshold) & (self.feature_stds > 0)).sum()
+            total = self.feature_stds.size
+            results["issues"].append(f"Very small values in stds: {small_count}/{total} ({small_count/total*100:.2f}%)")
+            small_indices = np.where((self.feature_stds < small_threshold) & (self.feature_stds > 0))[0]
+            results["std_small_indices"] = small_indices[:10].tolist()  # First 10 indices
+        
+        # Check for infinite values
+        if np.isinf(self.feature_means).any():
+            inf_count = np.isinf(self.feature_means).sum()
+            results["issues"].append(f"Infinite values in means: {inf_count}")
+        
+        if np.isinf(self.feature_stds).any():
+            inf_count = np.isinf(self.feature_stds).sum()
+            results["issues"].append(f"Infinite values in stds: {inf_count}")
+        
+        # Add basic statistics
+        results["mean_stats"] = {
+            "min": float(np.nanmin(self.feature_means)),
+            "max": float(np.nanmax(self.feature_means)),
+            "avg": float(np.nanmean(self.feature_means))
+        }
+        
+        results["std_stats"] = {
+            "min": float(np.nanmin(self.feature_stds)),
+            "max": float(np.nanmax(self.feature_stds)),
+            "avg": float(np.nanmean(self.feature_stds))
+        }
+        
+        return results
+
