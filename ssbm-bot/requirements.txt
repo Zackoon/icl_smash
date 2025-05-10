@@ -1,9 +1,0 @@
-melee
-numpy
-
-tqdm
-
-colorama
-
-tensorflow
-keras
