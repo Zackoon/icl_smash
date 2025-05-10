@@ -195,7 +195,7 @@ class BatchedFilesDataset:
             try:
                 dataset = MeleeDataset(file_path, match_id, num_enums=self.num_enums)
                 datasets.append(dataset)
-                print(f"Loaded {file_path}")
+                # print(f"Loaded {file_path}")
             except Exception as e:
                 print(f"Failed to load {file_path}: {e}")
         
