@@ -14,8 +14,6 @@ We have saved a model in `models_params`, and the various `.ipynb` notebooks inv
 
 `live_inference.py` contains the logic of keeping a context window to input into the model at each timestep, along with based on a models prediction from the gamestate input, making our bot actually perform actions in the emulator.
 
-The `ssbm-bot` folder is an attempt we found online at making a Smash Bros. bot. We had previously tried playing around with it, before we decided to do the processing, loading, and training from scratch. It has been included for comprehensiveness-sake but is not used in our code-base.
-
 
 You can view our processed data at this gdrive link: https://drive.google.com/drive/folders/1HPt5PipV2PQQLsrA4yJqLrI_EZaCumhG?dmr=1&ec=wgc-drive-hero-goto under the folder `processed_data`. 
 
