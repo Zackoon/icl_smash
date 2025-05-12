@@ -168,7 +168,7 @@ if __name__ == "__main__":
                         gamestate,
                         controller,
                         melee.Character.FOX,  # Player 1 character
-                        melee.Stage.BATTLEFIELD,
+                        melee.Stage.YOSHIS_STORY,
                         costume=0,
                         cpu_level=1,  # Set CPU level to 3 for opponent
                         autostart=True,
@@ -178,8 +178,8 @@ if __name__ == "__main__":
                     menu_helper.menu_helper_simple(
                         gamestate,
                         controller,
-                        melee.Character.FOX,
-                        melee.Stage.BATTLEFIELD,
+                        melee.Character.FALCO,
+                        melee.Stage.YOSHIS_STORY,
                         costume=port,
                         autostart=False,
                         swag=False)
