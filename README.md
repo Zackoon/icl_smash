@@ -1,5 +1,5 @@
 # icl_smash
-Smash bros. bot using ICL. 
+Smash bros. bot using ICL. [You can find our write-up here](https://drive.google.com/file/d/1s4AevMQu6eGGcoJFi9sXXRqBypEOkiqz/view?usp=sharing).
 
 Note that the libmelee folder is from the dev branch of vladfi1's fork of libmelee (https://github.com/vladfi1/libmelee/tree/dev), a library used to interact with the Dolphin/Slippi emulator. If you plan on cloning the repository, make sure to recursively clone submodules as this counts as one.
 
